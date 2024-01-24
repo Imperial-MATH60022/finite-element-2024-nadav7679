@@ -1,9 +1,11 @@
+import copy
 import numpy as np
-from .reference_elements import ReferenceInterval, ReferenceTriangle
+
+from .reference_elements import ReferenceInterval, ReferenceTriangle, ReferenceCell
 np.seterr(invalid='ignore', divide='ignore')
 
 
-def lagrange_points(cell, degree):
+def lagrange_points(cell: ReferenceCell, degree):
     """Construct the locations of the equispaced Lagrange nodes on cell.
 
     :param cell: the :class:`~.reference_elements.ReferenceCell`
@@ -16,8 +18,51 @@ def lagrange_points(cell, degree):
     <ex-lagrange-points>`.
 
     """
+    print(f"dim: {cell.dim} \n\n", f"topology: {cell.topology} \n\n", f"vertices: {cell.vertices}\n\n", f"degree: {degree}")
+    if cell.dim > 2:
+        raise NotImplementedError(f"{dimension}D is hard :(")
+    
+    dimension = cell.dim
+    verticies = cell.vertices
+    lpoints = copy.deepcopy(verticies)
+    intervals = cell.topology[1]
+    intervals = dict(sorted(intervals.items()))
+    
+    
+    # create edge points in topological order
+    for _, edge in intervals.items(): 
+        x1 = verticies[int(edge[0])]
+        x2 = verticies[int(edge[1])]
+        
+        edge_points_num = degree + 1
+        edge_points = np.linspace(x1, x2, edge_points_num)[1: -1] # create p+1 equidistance points on an edge (inc. vertices)
+        # print(lpoints, inner_points)
+        lpoints = np.concatenate((lpoints,edge_points))
+    
+    # create inner points in some order
+    if dimension == 2 and degree >= 3:
+        for i in range(1, degree-1):
+            num_interval_points = degree + 1 - i # amount of interval points is decreasing w. i
+            x_i = [0, i]
+            x_end = [num_interval_points - 1, i] # x-coord. of interval end-point is (deg-i, i)
+            
+            inner_points = 1/degree * np.linspace(x_i, x_end, num_interval_points)[1: -1]
+            lpoints = np.concatenate((lpoints, inner_points))
 
-    raise NotImplementedError
+    print(np.round((np.sum(lpoints, 0) / lpoints.shape[0]) - 1./(cell.dim + 1), 12))
+    return lpoints
+    
+        
+         
+    # return lpoints = np.array[
+    #     p1,
+    #     p2,
+    #     ...
+    #     pN
+    # ]
+    
+    
+
 
 
 def vandermonde_matrix(cell, degree, points, grad=False):
