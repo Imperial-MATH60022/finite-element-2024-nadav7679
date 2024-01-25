@@ -176,6 +176,10 @@ class FiniteElement(object):
         <ex-tabulate>`.
 
         """
+        vander_matrix = vandermonde_matrix(self.cell, self.degree, points, grad)
+        tabulation = vander_matrix @ self.basis_coefs
+        
+        return tabulation
         
         
 
