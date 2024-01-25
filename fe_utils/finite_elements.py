@@ -18,7 +18,6 @@ def lagrange_points(cell: ReferenceCell, degree):
     <ex-lagrange-points>`.
 
     """
-    print(f"dim: {cell.dim} \n\n", f"topology: {cell.topology} \n\n", f"vertices: {cell.vertices}\n\n", f"degree: {degree}")
     if cell.dim > 2:
         raise NotImplementedError(f"{dimension}D is hard :(")
     
@@ -49,23 +48,28 @@ def lagrange_points(cell: ReferenceCell, degree):
             inner_points = 1/degree * np.linspace(x_i, x_end, num_interval_points)[1: -1]
             lpoints = np.concatenate((lpoints, inner_points))
 
-    print(np.round((np.sum(lpoints, 0) / lpoints.shape[0]) - 1./(cell.dim + 1), 12))
     return lpoints
     
+
+def get_vandermonde_row(p, degree):
+    
+    if len(p) == 1:
+        return np.vander(p, degree+1, increasing=True)[0]
+    
+    row = np.array([])
+    for i in range(1, degree+2): # vandermonde w deg=1 has i=1, 2
+        x, y = p[0], p[1]
+        x_powers = np.vander([x], i)[0]
+        y_powers = np.vander([y], i, increasing=True)[0]
         
-         
-    # return lpoints = np.array[
-    #     p1,
-    #     p2,
-    #     ...
-    #     pN
-    # ]
-    
-    
+        vander_row = x_powers*y_powers
+        row = np.append(row, vander_row)
+        
+        
+    return row
+        
 
-
-
-def vandermonde_matrix(cell, degree, points, grad=False):
+def vandermonde_matrix(cell: ReferenceCell, degree: int, points, grad=False):
     """Construct the generalised Vandermonde matrix for polynomials of the
     specified degree on the cell provided.
 
@@ -79,9 +83,19 @@ def vandermonde_matrix(cell, degree, points, grad=False):
     The implementation of this function is left as an :ref:`exercise
     <ex-vandermonde>`.
     """
-
-    raise NotImplementedError
-
+    if cell.dim > 2:
+        raise NotImplemented(f"{cell.dim}D is hard :(")
+    
+    for i, x in enumerate(points):
+        if not i:
+            vander_row = get_vandermonde_row(x, degree)
+            vandermonde = vander_row.reshape((1, len(vander_row))) # reshape array into 1-row matrix 
+            continue
+        
+        x_row = get_vandermonde_row(x, degree)
+        vandermonde = np.vstack((vandermonde, x_row))
+    
+    return vandermonde
 
 class FiniteElement(object):
     def __init__(self, cell, degree, nodes, entity_nodes=None):
@@ -148,8 +162,10 @@ class FiniteElement(object):
         <ex-tabulate>`.
 
         """
+        
+        
 
-        raise NotImplementedError
+
 
     def interpolate(self, fn):
         """Interpolate fn onto this finite element by evaluating it
