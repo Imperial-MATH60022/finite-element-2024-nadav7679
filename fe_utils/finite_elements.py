@@ -51,7 +51,15 @@ def lagrange_points(cell: ReferenceCell, degree):
     return lpoints
     
 
-def get_vandermonde_row(p, degree):
+def _get_vandermonde_row(p, degree):
+    """Internal utility function to calculate a row of the
+    Vandermonde matrix for one 1D or 2D point.
+
+    :param p: a 1D or 2D tuple of coordinates 
+    :param degree: degree of polynomials 
+    
+    :returns: a numpy array containing the Vandermonde row for the point
+    """
     
     if len(p) == 1:
         return np.vander(p, degree+1, increasing=True)[0]
@@ -88,11 +96,11 @@ def vandermonde_matrix(cell: ReferenceCell, degree: int, points, grad=False):
     
     for i, x in enumerate(points):
         if not i:
-            vander_row = get_vandermonde_row(x, degree)
+            vander_row = _get_vandermonde_row(x, degree)
             vandermonde = vander_row.reshape((1, len(vander_row))) # reshape array into 1-row matrix 
             continue
         
-        x_row = get_vandermonde_row(x, degree)
+        x_row = _get_vandermonde_row(x, degree)
         vandermonde = np.vstack((vandermonde, x_row))
     
     return vandermonde
