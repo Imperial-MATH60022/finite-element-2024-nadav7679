@@ -217,10 +217,6 @@ class LagrangeElement(FiniteElement):
         The implementation of this class is left as an :ref:`exercise
         <ex-lagrange-element>`.
         """
+        nodes = lagrange_points(cell, degree)
 
-        raise NotImplementedError
-        # Use lagrange_points to obtain the set of nodes.  Once you
-        # have obtained nodes, the following line will call the
-        # __init__ method on the FiniteElement class to set up the
-        # basis coefficients.
         super(LagrangeElement, self).__init__(cell, degree, nodes)
