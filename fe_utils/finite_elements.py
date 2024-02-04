@@ -1,5 +1,6 @@
 import copy
 import numpy as np
+from sympy import diff, Array, symbols, lambdify
 
 from .reference_elements import ReferenceInterval, ReferenceTriangle, ReferenceCell
 np.seterr(invalid='ignore', divide='ignore')
@@ -75,6 +76,46 @@ def _get_vandermonde_row(p, degree):
         
         
     return row
+
+def _vandermonde_matrix(cell: ReferenceCell, degree: int, points):
+        
+    for i, x in enumerate(points):
+        if not i:
+            vander_row = _get_vandermonde_row(x, degree)
+            vandermonde = vander_row.reshape((1, len(vander_row))) # reshape array into 1-row matrix 
+            continue
+        
+        x_row = _get_vandermonde_row(x, degree)
+        vandermonde = np.vstack((vandermonde, x_row))
+    
+    return vandermonde
+
+
+def _vandermonde_matrix_grad(cell: ReferenceCell, degree: int, points):
+    x, y = symbols("x y")
+    symbol_point = [x, y] if cell.dim == 2 else [x]
+    
+    symbol_vander_arr = Array(_vandermonde_matrix(cell, degree, [symbol_point])[0])
+    x_grad_fn = lambdify(symbol_point, symbol_vander_arr.diff(x), 'numpy')
+    
+    if cell.dim == 2:
+        y_grad_fn = lambdify(symbol_point, symbol_vander_arr.diff(y), 'numpy')
+    
+    gradmonde = np.zeros((len(points), len(symbol_vander_arr), cell.dim))
+    for i, p in enumerate(points):
+        if cell.dim == 1:
+            x_grad = x_grad_fn(p[0])
+            level = np.array([x_grad])
+            
+        else:
+            x_grad = x_grad_fn(x=p[0], y=p[1])
+            y_grad = y_grad_fn(x=p[0], y=p[1])
+            level = np.array([x_grad, y_grad])
+            
+        gradmonde[i] = np.transpose(level)
+        
+    return gradmonde
+
         
 
 def vandermonde_matrix(cell: ReferenceCell, degree: int, points, grad=False):
@@ -93,17 +134,10 @@ def vandermonde_matrix(cell: ReferenceCell, degree: int, points, grad=False):
     """
     if cell.dim > 2:
         raise NotImplemented(f"{cell.dim}D is hard :(")
-    
-    for i, x in enumerate(points):
-        if not i:
-            vander_row = _get_vandermonde_row(x, degree)
-            vandermonde = vander_row.reshape((1, len(vander_row))) # reshape array into 1-row matrix 
-            continue
-        
-        x_row = _get_vandermonde_row(x, degree)
-        vandermonde = np.vstack((vandermonde, x_row))
-    
-    return vandermonde
+
+    return _vandermonde_matrix_grad(cell, degree, points) if grad \
+            else _vandermonde_matrix(cell, degree, points)
+
 
 class FiniteElement(object):
     def __init__(self, cell, degree, nodes, entity_nodes=None):
