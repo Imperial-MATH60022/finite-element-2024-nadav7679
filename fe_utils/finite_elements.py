@@ -210,9 +210,12 @@ class FiniteElement(object):
         <ex-tabulate>`.
 
         """
-        vander_matrix = vandermonde_matrix(self.cell, self.degree, points, grad)
-        tabulation = vander_matrix @ self.basis_coefs
         
+        vander_matrix = vandermonde_matrix(self.cell, self.degree, points, grad)
+        if grad:
+            return np.einsum("ilk,lj -> ijk", vander_matrix, self.basis_coefs)
+        
+        tabulation = vander_matrix @ self.basis_coefs
         return tabulation
         
         
