@@ -258,6 +258,29 @@ class LagrangeElement(FiniteElement):
         The implementation of this class is left as an :ref:`exercise
         <ex-lagrange-element>`.
         """
-        nodes = lagrange_points(cell, degree)
+        if cell.dim > 2:
+            raise NotImplemented(f"{cell.dim}D is hard :(")
 
-        super(LagrangeElement, self).__init__(cell, degree, nodes)
+        nodes = lagrange_points(cell, degree)  # Assuming nodes are in entity order
+        n = len(nodes)
+        node_indices = list(range(n))
+
+        edge_pts_num = degree + 1 - 2
+        entity_nodes = {
+            0: {i: [node_indices[i]] for i in range(cell.dim + 1)}  # Vertices first
+        }
+
+        if cell.dim == 2:
+            entity_nodes[1] = {
+                e: node_indices[3 + e*edge_pts_num: 3 + (1 + e)*edge_pts_num] for e in range(3)
+            }
+
+            entity_nodes[2] = {0: node_indices[3 + 3*edge_pts_num:]}
+
+        else:
+            entity_nodes[1] = {0: node_indices[2:]}
+
+        super(LagrangeElement, self).__init__(cell, degree, nodes, entity_nodes)
+
+if __name__ == "__main__":
+    lag_element = LagrangeElement(ReferenceTriangle, 1)
