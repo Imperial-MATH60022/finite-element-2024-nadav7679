@@ -1,13 +1,14 @@
 import numpy as np
 from . import ReferenceTriangle, ReferenceInterval
-from .finite_elements import LagrangeElement, lagrange_points
+from .finite_elements import FiniteElement, LagrangeElement, lagrange_points
+from .mesh import Mesh, UnitSquareMesh, UnitIntervalMesh
 from matplotlib import pyplot as plt
 from matplotlib.tri import Triangulation
 
 
 class FunctionSpace(object):
 
-    def __init__(self, mesh, element):
+    def __init__(self, mesh: Mesh, element: FiniteElement):
         """A finite element space.
 
         :param mesh: The :class:`~.mesh.Mesh` on which this space is built.
@@ -23,10 +24,22 @@ class FunctionSpace(object):
         #: The :class:`~.finite_elements.FiniteElement` of this space.
         self.element = element
 
-        raise NotImplementedError
-
         # Implement global numbering in order to produce the global
         # cell node list for this space.
+        n_cell = len(self.mesh.cell_vertices)
+        max_entity_nodes = max([self.element.nodes_per_entity[d] for d in range(self.mesh.dim)])
+
+        # Global numbering
+        g = lambda d, i: (i*self.element.nodes_per_entity[d] +
+                          sum([self.element.nodes_per_entity[delta] * self.mesh.entity_counts[delta]
+                               for delta in range(d)]))
+
+        cell_nodes = np.zeros((n_cell, (mesh.dim + 1) * (1 + max_entity_nodes)), dtype=int)
+        for c in range(n_cell):
+            #  TODO: Implement node-cell map. I am not sure if I need to use cell nodes as a big ol' matrix or just an
+            #   array of arrays, bc the column length is varied. Also eq. 4.4 has something with the multivalued index.
+            pass
+
         #: The global cell node list. This is a two-dimensional array in
         #: which each row lists the global nodes incident to the corresponding
         #: cell. The implementation of this member is left as an
@@ -173,3 +186,7 @@ class Function(object):
         :result: The integral (a scalar)."""
 
         raise NotImplementedError
+
+if __name__ == "__main__":
+    mesh = UnitSquareMesh(2, 2)
+    print(mesh.entity_counts[1])
