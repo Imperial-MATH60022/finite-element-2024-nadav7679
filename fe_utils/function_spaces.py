@@ -1,13 +1,14 @@
 import numpy as np
 from . import ReferenceTriangle, ReferenceInterval
-from .finite_elements import LagrangeElement, lagrange_points
+from .finite_elements import FiniteElement, LagrangeElement, lagrange_points
+from .mesh import Mesh, UnitSquareMesh, UnitIntervalMesh
 from matplotlib import pyplot as plt
 from matplotlib.tri import Triangulation
 
 
 class FunctionSpace(object):
 
-    def __init__(self, mesh, element):
+    def __init__(self, mesh: Mesh, element: FiniteElement):
         """A finite element space.
 
         :param mesh: The :class:`~.mesh.Mesh` on which this space is built.
@@ -23,15 +24,31 @@ class FunctionSpace(object):
         #: The :class:`~.finite_elements.FiniteElement` of this space.
         self.element = element
 
-        raise NotImplementedError
-
         # Implement global numbering in order to produce the global
         # cell node list for this space.
+        n_cell = len(self.mesh.cell_vertices)
+        max_entity_nodes = max([self.element.nodes_per_entity[d] for d in range(self.mesh.dim)])
+
+        # Global numbering
+        g = lambda d, i: (i*self.element.nodes_per_entity[d] +
+                          sum([self.element.nodes_per_entity[delta] * self.mesh.entity_counts[delta]
+                               for delta in range(d)]))
+
+        dim_c = mesh.dim
+        cell_nodes = np.zeros((n_cell, len(self.element.nodes)), dtype=int)
+        for c in range(n_cell):
+            for delta in range(dim_c + 1):
+                for epsilon in range(len(self.element.entity_nodes[delta])):  # epsilon is num of nodes in entity delta
+                    indices = self.element.entity_nodes[delta][epsilon]
+                    i = self.mesh.adjacency(dim_c, delta)[c, epsilon] if delta != dim_c else c
+
+                    cell_nodes[c, indices] = g(delta, i) + np.arange(self.element.nodes_per_entity[delta])
+
         #: The global cell node list. This is a two-dimensional array in
         #: which each row lists the global nodes incident to the corresponding
         #: cell. The implementation of this member is left as an
         #: :ref:`exercise <ex-function-space>`
-        self.cell_nodes = None
+        self.cell_nodes = cell_nodes
 
         #: The total number of nodes in the function space.
         self.node_count = np.dot(element.nodes_per_entity, mesh.entity_counts)
@@ -173,3 +190,6 @@ class Function(object):
         :result: The integral (a scalar)."""
 
         raise NotImplementedError
+
+if __name__ == "__main__":
+    mesh = UnitSquareMesh(2, 2)
