@@ -34,17 +34,21 @@ class FunctionSpace(object):
                           sum([self.element.nodes_per_entity[delta] * self.mesh.entity_counts[delta]
                                for delta in range(d)]))
 
-        cell_nodes = np.zeros((n_cell, (mesh.dim + 1) * (1 + max_entity_nodes)), dtype=int)
+        dim_c = mesh.dim
+        cell_nodes = np.zeros((n_cell, len(self.element.nodes)), dtype=int)
         for c in range(n_cell):
-            #  TODO: Implement node-cell map. I am not sure if I need to use cell nodes as a big ol' matrix or just an
-            #   array of arrays, bc the column length is varied. Also eq. 4.4 has something with the multivalued index.
-            pass
+            for delta in range(dim_c + 1):
+                for epsilon in range(len(self.element.entity_nodes[delta])):  # epsilon is num of nodes in entity delta
+                    indices = self.element.entity_nodes[delta][epsilon]
+                    i = self.mesh.adjacency(dim_c, delta)[c, epsilon] if delta != dim_c else c
+
+                    cell_nodes[c, indices] = g(delta, i) + np.arange(self.element.nodes_per_entity[delta])
 
         #: The global cell node list. This is a two-dimensional array in
         #: which each row lists the global nodes incident to the corresponding
         #: cell. The implementation of this member is left as an
         #: :ref:`exercise <ex-function-space>`
-        self.cell_nodes = None
+        self.cell_nodes = cell_nodes
 
         #: The total number of nodes in the function space.
         self.node_count = np.dot(element.nodes_per_entity, mesh.entity_counts)
@@ -189,4 +193,3 @@ class Function(object):
 
 if __name__ == "__main__":
     mesh = UnitSquareMesh(2, 2)
-    print(mesh.entity_counts[1])
