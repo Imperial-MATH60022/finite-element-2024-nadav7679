@@ -74,6 +74,14 @@ class Mesh(object):
         #: :class:`Mesh` is composed.
         self.cell = (0, ReferenceInterval, ReferenceTriangle)[self.dim]
 
+
+        cg1 = LagrangeElement(self.cell, 1)
+
+        #: The gradient of a CG1 Lagrange element defined on the reference cell.
+        #: Since CG1 has affine basis functions, its gradiant is constant and can be evaluated at zero for all cells.
+        self.grad_psi = cg1.tabulate(np.zeros((1, self.dim)), grad=True)[0]
+
+
     def adjacency(self, dim1, dim2):
         """Return the set of `dim2` entities adjacent to each `dim1`
         entity. For example if `dim1==2` and `dim2==1` then return the list of
@@ -113,12 +121,9 @@ class Mesh(object):
         :param c: The number of the cell for which to return the Jacobian.
         :result: The Jacobian for cell ``c``.
         """
-
         vertices = self.cell_vertices[c]
-        cg1 = LagrangeElement(self.cell, 1)
-        grad_psi = cg1.tabulate(np.zeros((1, self.dim)), grad=True)[0]  # cg1 has constant grad and can be eval at zero
 
-        return self.vertex_coords[vertices, :].transpose() @ grad_psi
+        return self.vertex_coords[vertices, :].transpose() @ self.grad_psi
 
 
 class UnitIntervalMesh(Mesh):
