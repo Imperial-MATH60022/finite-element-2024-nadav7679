@@ -2,11 +2,13 @@ from scipy.spatial import Delaunay
 import numpy as np
 import itertools
 from .reference_elements import ReferenceTriangle, ReferenceInterval
+from .finite_elements import LagrangeElement
 
 
 class Mesh(object):
     """A one or two dimensional mesh composed of intervals or triangles
     respectively."""
+
     def __init__(self, vertex_coords, cell_vertices):
         """
         :param vertex_coords: a vertex_count x dim array of the coordinates of
@@ -112,11 +114,16 @@ class Mesh(object):
         :result: The Jacobian for cell ``c``.
         """
 
-        raise NotImplementedError
+        vertices = self.cell_vertices[c]
+        cg1 = LagrangeElement(self.cell, 1)
+        grad_psi = cg1.tabulate(np.zeros((1, self.dim)), grad=True)[0]  # cg1 has constant grad and can be eval at zero
+
+        return self.vertex_coords[vertices, :].transpose() @ grad_psi
 
 
 class UnitIntervalMesh(Mesh):
     """A mesh of the unit interval."""
+
     def __init__(self, nx):
         """
         :param nx: The number of cells.
@@ -124,7 +131,7 @@ class UnitIntervalMesh(Mesh):
         points = np.array(list((x,) for x in np.linspace(0, 1, nx + 1)))
         points.shape = (points.shape[0], 1)
 
-        cells = np.array(list((a, a+1) for a in range(nx)))
+        cells = np.array(list((a, a + 1) for a in range(nx)))
 
         super(UnitIntervalMesh, self).__init__(points,
                                                cells)
@@ -132,6 +139,7 @@ class UnitIntervalMesh(Mesh):
 
 class UnitSquareMesh(Mesh):
     """A triangulated :class:`Mesh` of the unit square."""
+
     def __init__(self, nx, ny):
         """
         :param nx: The number of cells in the x direction.
@@ -145,3 +153,9 @@ class UnitSquareMesh(Mesh):
 
         super(UnitSquareMesh, self).__init__(mesh.points,
                                              mesh.simplices)
+
+
+if __name__ == "__main__":
+    square = UnitSquareMesh(4, 4)
+    print(square.jacobian(6))
+
