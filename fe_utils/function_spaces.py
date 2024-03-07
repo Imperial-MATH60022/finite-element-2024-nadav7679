@@ -1,9 +1,11 @@
 import numpy as np
+from matplotlib import pyplot as plt
+from matplotlib.tri import Triangulation
+
 from . import ReferenceTriangle, ReferenceInterval
 from .finite_elements import FiniteElement, LagrangeElement, lagrange_points
 from .mesh import Mesh, UnitSquareMesh, UnitIntervalMesh
-from matplotlib import pyplot as plt
-from matplotlib.tri import Triangulation
+from .quadrature import gauss_quadrature
 
 
 class FunctionSpace(object):
@@ -60,7 +62,7 @@ class FunctionSpace(object):
 
 
 class Function(object):
-    def __init__(self, function_space, name=None):
+    def __init__(self, function_space: FunctionSpace, name=None):
         """A function in a finite element space. The main role of this object
         is to store the basis function coefficients associated with the nodes
         of the underlying function space.
@@ -189,7 +191,31 @@ class Function(object):
 
         :result: The integral (a scalar)."""
 
-        raise NotImplementedError
+        fs = self.function_space
+
+        quad = gauss_quadrature(fs.element.cell, fs.element.degree)
+        local_phi = fs.element.tabulate(quad.points)
+
+        cell_integrals = np.zeros(fs.mesh.entity_counts[-1])
+        for c in range(fs.mesh.entity_counts[-1]):
+            func_cell_coefs = self.values[fs.cell_nodes[c, :]]
+            func_cell_coefs = func_cell_coefs.reshape((func_cell_coefs.shape[0], 1))
+
+            # local_phi @ func_cell_coefs gives a vector of sums, each component corresponds to quadrature point,
+            # and the sum is over all basis functions and func coefs at that point. Then contract it with quad weights.
+            cell_quad = quad.weights.reshape((1, quad.weights.shape[0])) @ (local_phi @ func_cell_coefs)
+            cell_quad = cell_quad[0, 0]
+
+            jacobian = np.abs(np.linalg.det(fs.mesh.jacobian(c)))
+            cell_integrals[c] = cell_quad * jacobian
+
+        return np.sum(cell_integrals)
+
 
 if __name__ == "__main__":
-    mesh = UnitSquareMesh(2, 2)
+    mesh = UnitIntervalMesh(20,)
+    element = LagrangeElement(ReferenceInterval, 5)
+    fs = FunctionSpace(mesh, element)
+    sinx = Function(fs, "sinx")
+    sinx.interpolate(lambda x: np.sin(2 * np.pi * x[0]))
+    print(f"I'm this close to zero: {sinx.integrate()}")
