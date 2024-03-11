@@ -7,27 +7,60 @@ import numpy as np
 from numpy import cos, pi
 import scipy.sparse as sp
 import scipy.sparse.linalg as splinalg
-from argparse import ArgumentParser
+
+from ..quadrature import gauss_quadrature
+from ..function_spaces import FunctionSpace, Function
 
 
-def assemble(fs, f):
+def assemble(fs: FunctionSpace, f: Function):
     """Assemble the finite element system for the Helmholtz problem given
     the function space in which to solve and the right hand side
-    function."""
+    function.
 
-    raise NotImplementedError
+    Note: Assume f.function_space and fs are on the same mesh.
+    TODO: Currently the computation assumes f.function_space and fs to be the same.
+          It might not be the case, they might share a mesh but not a function space.
+          So figure out if it needs to be implemented and if so change accordingly (probably need to change only RHS
+          to use a tabulation on f function space).
+    """
+
+    if fs.mesh.entity_counts[-1] != f.function_space.mesh.entity_counts[-1]:
+        raise ValueError("fs and f supposed to be defined on the same mesh")
 
     # Create an appropriate (complete) quadrature rule.
+    quad = gauss_quadrature(fs.element.cell, fs.element.degree**2)
 
     # Tabulate the basis functions and their gradients at the quadrature points.
+    local_phi = fs.element.tabulate(quad.points)
+    local_phi_grad = fs.element.tabulate(quad.points, True)
 
-    # Create the left hand side matrix and right hand side vector.
-    # This creates a sparse matrix because creating a dense one may
-    # well run your machine out of memory!
+    # Sparse matrices to hold results
     A = sp.lil_matrix((fs.node_count, fs.node_count))
     l = np.zeros(fs.node_count)
 
-    # Now loop over all the cells and assemble A and l
+    for c in range(fs.mesh.entity_counts[-1]):
+        # local_phi_grad.shape = (q, i, a) where q num of quad points, i num of basis funcs, a dimensions
+        # jac.shape = (d, a) where a==d (d is just another dummy var.)
+        # local_phi.shape = (q, i)
+
+        jac = fs.mesh.jacobian(c)
+        jac_det = np.abs(np.linalg.det(jac))
+        jac_inv_t = np.linalg.inv(jac)
+
+        c_nodes = f.function_space.cell_nodes[c, :]
+
+        # RHS:
+        cell_f = local_phi @ f.values[c_nodes].reshape((c_nodes.shape[0], 1))  # Contract f with basis func at quad
+        cell_f_int = np.einsum("qi,q,q->i", local_phi, np.squeeze(cell_f, 1), quad.weights)  # Contract weights
+
+        l[fs.cell_nodes[c, :]] += jac_det * cell_f_int
+
+        # LFS:
+        jac_grad_phi = np.einsum("da,qid->aiq", jac_inv_t, local_phi_grad)
+        jac_grad_phi_squared = np.einsum("aiq,ajq->ijq", jac_grad_phi, jac_grad_phi)
+        local_phi_squared = np.einsum("qi,qj->ijq", local_phi, local_phi)
+
+        A[np.ix_(c_nodes, c_nodes)] += jac_det * ((local_phi_squared + jac_grad_phi_squared) @ quad.weights)  # Contract weights
 
     return A, l
 
@@ -77,7 +110,9 @@ def solve_helmholtz(degree, resolution, analytic=False, return_error=False):
     # Return the solution and the error in the solution.
     return u, error
 
+
 if __name__ == "__main__":
+    from argparse import ArgumentParser
 
     parser = ArgumentParser(
         description="""Solve a Helmholtz problem on the unit square.""")
