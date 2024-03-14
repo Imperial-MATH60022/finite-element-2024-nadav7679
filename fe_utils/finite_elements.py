@@ -265,6 +265,16 @@ class VectorFiniteElement(FiniteElement):
         # On each entity we have d times number of nodes.
         self.nodes_per_entity *= d
 
+        # The nodes (coordinates) are the same for nodes at the same location
+        self.nodes = self.nodes.repeat(d, axis=0)
+
+        # Node weights
+        # self.node_weights = np.eye(d)
+        self.node_weights = np.tile(np.eye(d), (self.node_count, 1)) # Repeat eye for each *distinct* node
+
+        # Node count (indistinct nodes)
+        self.node_count = self.nodes.shape[0]
+
 
 class LagrangeElement(FiniteElement):
     def __init__(self, cell, degree):
@@ -307,4 +317,5 @@ class LagrangeElement(FiniteElement):
 if __name__ == "__main__":
     lag_element = LagrangeElement(ReferenceTriangle, 3)
     vec_fe = VectorFiniteElement(lag_element)
-    print(vec_fe.nodes, vec_fe.nodes_per_entity, vec_fe.node_count, vec_fe.entity_nodes, sep="\n")
+    # print(vec_fe.nodes, vec_fe.nodes_per_entity, vec_fe.node_count, vec_fe.entity_nodes, sep="\n")
+    # print(len(vec_fe.node_weights), vec_fe.node_count)
