@@ -3,6 +3,7 @@ import numpy as np
 from sympy import diff, Array, symbols, lambdify
 
 from .reference_elements import ReferenceInterval, ReferenceTriangle, ReferenceCell
+from .quadrature import gauss_quadrature
 np.seterr(invalid='ignore', divide='ignore')
 
 
@@ -249,7 +250,8 @@ class VectorFiniteElement(FiniteElement):
     def __init__(self, fe: FiniteElement):
         super().__init__(fe.cell, fe.degree, fe.nodes, fe.entity_nodes)
 
-        d = fe.cell.dim
+        self.d = fe.cell.dim
+        self.scalar_finite_element = fe
 
         # Entity nodes
 
@@ -258,22 +260,33 @@ class VectorFiniteElement(FiniteElement):
             for i in d_nodes:
                 if self.entity_nodes[delta][i]:
                     # Expand each node number n with the new node numberings (d*n, ..., d*n + d), then concat.
-                    self.entity_nodes[delta][i] = np.concatenate([np.arange(d*n, d*(n+1)) for n in self.entity_nodes[delta][i]])
+                    self.entity_nodes[delta][i] = np.concatenate([np.arange(self.d*n, self.d*(n+1)) for n in self.entity_nodes[delta][i]])
                 else:
                     continue
 
         # On each entity we have d times number of nodes.
-        self.nodes_per_entity *= d
+        self.nodes_per_entity *= self.d
 
         # The nodes (coordinates) are the same for nodes at the same location
-        self.nodes = self.nodes.repeat(d, axis=0)
+        self.nodes = self.nodes.repeat(self.d, axis=0)
 
         # Node weights
         # self.node_weights = np.eye(d)
-        self.node_weights = np.tile(np.eye(d), (self.node_count, 1)) # Repeat eye for each *distinct* node
+        self.node_weights = np.tile(np.eye(self.d), (self.node_count, 1)) # Repeat eye for each *distinct* node
 
         # Node count (indistinct nodes)
         self.node_count = self.nodes.shape[0]
+
+    def tabulate(self, points, grad=False):
+        scalar_tab = self.scalar_finite_element.tabulate(points, grad)
+        tile_shape = (self.d, 1, 1) if grad else (self.d, 1)
+        scalar_tab_tiled = np.repeat(scalar_tab, 2, axis=0)
+        res = scalar_tab_tiled[:, np.newaxis]
+
+        print(res.shape)
+        print(scalar_tab_tiled.shape)
+        print(scalar_tab_tiled)
+
 
 
 class LagrangeElement(FiniteElement):
@@ -317,5 +330,12 @@ class LagrangeElement(FiniteElement):
 if __name__ == "__main__":
     lag_element = LagrangeElement(ReferenceTriangle, 3)
     vec_fe = VectorFiniteElement(lag_element)
+    print(vec_fe.node_weights)
+    quad = gauss_quadrature(lag_element.cell, 3)
+    print(f"Number of quad points: {quad.points.shape[0]}")
+    vec_fe.tabulate(quad.points, grad=False)
+
+
+
     # print(vec_fe.nodes, vec_fe.nodes_per_entity, vec_fe.node_count, vec_fe.entity_nodes, sep="\n")
     # print(len(vec_fe.node_weights), vec_fe.node_count)
