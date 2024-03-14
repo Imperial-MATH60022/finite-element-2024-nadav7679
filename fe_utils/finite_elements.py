@@ -245,6 +245,27 @@ class FiniteElement(object):
                                self.degree)
 
 
+class VectorFiniteElement(FiniteElement):
+    def __init__(self, fe: FiniteElement):
+        super().__init__(fe.cell, fe.degree, fe.nodes, fe.entity_nodes)
+
+        d = fe.cell.dim
+
+        # Entity nodes
+
+        for delta, d_nodes in self.entity_nodes.items():
+            # e.g. delta = 1, d_nodes = {0: [0, 1], 1: [3, 4]}
+            for i in d_nodes:
+                if self.entity_nodes[delta][i]:
+                    # Expand each node number n with the new node numberings (d*n, ..., d*n + d), then concat.
+                    self.entity_nodes[delta][i] = np.concatenate([np.arange(d*n, d*(n+1)) for n in self.entity_nodes[delta][i]])
+                else:
+                    continue
+
+        # On each entity we have d times number of nodes.
+        self.nodes_per_entity *= d
+
+
 class LagrangeElement(FiniteElement):
     def __init__(self, cell, degree):
         """An equispaced Lagrange finite element.
@@ -282,5 +303,8 @@ class LagrangeElement(FiniteElement):
 
         super(LagrangeElement, self).__init__(cell, degree, nodes, entity_nodes)
 
+
 if __name__ == "__main__":
-    lag_element = LagrangeElement(ReferenceTriangle, 1)
+    lag_element = LagrangeElement(ReferenceTriangle, 3)
+    vec_fe = VectorFiniteElement(lag_element)
+    print(vec_fe.nodes, vec_fe.nodes_per_entity, vec_fe.node_count, vec_fe.entity_nodes, sep="\n")
