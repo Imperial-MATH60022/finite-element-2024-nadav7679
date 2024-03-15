@@ -279,14 +279,20 @@ class VectorFiniteElement(FiniteElement):
 
     def tabulate(self, points, grad=False):
         scalar_tab = self.scalar_finite_element.tabulate(points, grad)
-        tile_shape = (self.d, 1, 1) if grad else (self.d, 1)
-        scalar_tab_tiled = np.repeat(scalar_tab, 2, axis=0)
-        res = scalar_tab_tiled[:, np.newaxis]
 
-        print(res.shape)
-        print(scalar_tab_tiled.shape)
-        print(scalar_tab_tiled)
+        if grad:  # TODO: verify grad implementation. Might be wrong. Maybe do the whole thing without a loop.
+            res = np.zeros((self.d * scalar_tab.shape[0], scalar_tab.shape[1], scalar_tab.shape[2], self.d),
+                           dtype=scalar_tab.dtype)
+            for i in range(self.d):
+                res[i::self.d, :, :, i] = scalar_tab
 
+        else:
+            #  e.g. d==2, then whenever i is odd we get res[i, :, 0] is zero, and for i even res[i, :, 1] is zeros.
+            res = np.zeros((self.d*scalar_tab.shape[0], scalar_tab.shape[1], self.d), dtype=scalar_tab.dtype)
+            for i in range(self.d):
+                res[i::self.d, :, i] = scalar_tab
+
+        return res
 
 
 class LagrangeElement(FiniteElement):
@@ -330,10 +336,13 @@ class LagrangeElement(FiniteElement):
 if __name__ == "__main__":
     lag_element = LagrangeElement(ReferenceTriangle, 3)
     vec_fe = VectorFiniteElement(lag_element)
-    print(vec_fe.node_weights)
+
     quad = gauss_quadrature(lag_element.cell, 3)
-    print(f"Number of quad points: {quad.points.shape[0]}")
-    vec_fe.tabulate(quad.points, grad=False)
+    tab = vec_fe.tabulate(quad.points, grad=True)
+    # print(tab, tab.shape)
+    # print(tab, tab.shape)
+    print(tab[:, :, :, 0])
+    print(tab[:, :, :, 1])
 
 
 
