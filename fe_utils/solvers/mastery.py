@@ -3,7 +3,57 @@ If run as a script, the result is plotted. This file can also be
 imported as a module and convergence tests run on the solver.
 """
 from argparse import ArgumentParser
+from fe_utils import *
+import numpy as np
+from numpy import sin, cos, pi
+import scipy.sparse as sp
+import scipy.sparse.linalg as splinalg
 
+
+def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function):
+    """Assume f is defined on fs1.
+        fs1 = V,
+        fs2 = Q.
+
+    """
+    n = fs1.node_count
+    m = fs2.node_count
+
+    # Solve Tu = l, where T is block matrix composed of A, B.
+    l = np.zeros(n + m)
+    A = sp.lil_matrix((n, n))
+    B = sp.lil_matrix((m, n))
+
+    # Quadrature for RHS
+    quad1 = gauss_quadrature(fs1.element.cell, fs1.element.degree ** 2)
+    print(quad1.points.shape)
+
+    # Tabulate
+    local_phi = fs1.element.tabulate(quad1.points)
+    grad_local_phi = fs1.element.tabulate(quad1.points, grad=True)
+
+    F = np.zeros(n)
+    for c in range(fs1.mesh.entity_counts[-1]):
+        # local_phi.shape = (q, i, d) where q is num of quad points, i is nodes, d is vector dimension
+
+        jac = fs1.mesh.jacobian(c)
+        jac_det = np.abs(np.linalg.det(jac))
+        jac_inv_t = np.linalg.inv(jac)
+
+        fs1_c_nodes = fs1.cell_nodes[c, :]
+        fs2_c_nodes = fs2.cell_nodes[c, :]
+
+        # Compute RHS TODO: Perhaps duplicate d times phi_squared in dimension[1], so that it would have the same number of nodes and we could sum it:
+        # phi_squared = np.einsum("qkl,qil->qki", local_phi, local_phi)
+        # print(phi_squared.shape, f.values[fs1_c_nodes].shape, fs1_c_nodes.shape)
+        # f_dot_phi = np.einsum("k,qki->qi", f.values[fs1_c_nodes], phi_squared)
+        # F[fs1_c_nodes] += jac_det * (np.einsum("i,qij->q", f.values[fs1_c_nodes], phi_squared)) @ quad1.weights
+
+        # Compute LHS - A:
+        epsilon_phi = 0.5*(grad_local_phi + grad_local_phi.transpose((0, 1, 3, 2)))
+        epsilon_squared = np.einsum("...ab,...ab->...", epsilon_phi, epsilon_phi)
+        print(grad_local_phi.shape, fs1_c_nodes.shape, epsilon_squared.shape)
+        A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += jac_det * (epsilon_squared)
 
 def solve_mastery(resolution, analytic=False, return_error=False):
     """This function should solve the mastery problem with the given
@@ -17,29 +67,66 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     numerical solution should be returned in place of the solution.
     """
 
-    raise NotImplementedError
+    degree = 2
+
+    mesh = UnitSquareMesh(resolution, resolution)
+    fe = LagrangeElement(mesh.cell, degree)
+
+    vec_fe = VectorFiniteElement(fe)
+    fs1 = FunctionSpace(mesh, vec_fe)
+
+    print(vec_fe.nodes.shape)
+    print(fs1.cell_nodes[0, :].shape)
+
+    fs2 = FunctionSpace(mesh, fe)
+
+    # Need to create u from gamma
+    analytic_answer = Function(fs1)
+    analytic_answer.interpolate(lambda x:
+                                (
+                                    2 * pi * (1 - cos(2 * pi * x[0]) * sin(2 * pi * x[1])),
+                                    2 * pi * (1 - cos(2 * pi * x[1]) * sin(2 * pi * x[0]))
+                                ))
+
+    # TODO: check that the analytic answer for u is correct. Unsure about p=0, it might be wrong.
+    #       Also, need to derive f, I'm unsure about that. If p is a constant, then f=grad**2 u.
+    if analytic:
+        return (analytic_answer, 0), 0.0
+
+    mu = 0.1
+    force_func = Function(fs1)
+    force_func.interpolate(lambda x:
+                           (
+                               -32 * pi * mu * cos(2 * pi * x[0]) * sin(2 * pi * x[1]),
+                               -32 * pi * mu * cos(2 * pi * x[1]) * sin(2 * pi * x[0]),
+                           )
+                           )
+
+    A, l = assemble(fs1, fs2, force_func)
+
     # return (u, p) error
 
 
 if __name__ == "__main__":
+    # parser = ArgumentParser(
+    #     description="""Solve the mastery problem.""")
+    # parser.add_argument(
+    #     "--analytic", action="store_true",
+    #     help="Plot the analytic solution instead of solving the finite"
+    #          " element problem.")
+    # parser.add_argument("--error", action="store_true",
+    #                     help="Plot the error instead of the solution.")
+    # parser.add_argument(
+    #     "resolution", type=int, nargs=1,
+    #     help="The number of cells in each direction on the mesh."
+    # )
+    # args = parser.parse_args()
+    # resolution = args.resolution[0]
+    # analytic = args.analytic
+    # plot_error = args.error
+    #
+    # u, error = solve_mastery(resolution, analytic, plot_error)
+    #
+    # u.plot()
 
-    parser = ArgumentParser(
-        description="""Solve the mastery problem.""")
-    parser.add_argument(
-        "--analytic", action="store_true",
-        help="Plot the analytic solution instead of solving the finite"
-        " element problem.")
-    parser.add_argument("--error", action="store_true",
-                        help="Plot the error instead of the solution.")
-    parser.add_argument(
-        "resolution", type=int, nargs=1,
-        help="The number of cells in each direction on the mesh."
-    )
-    args = parser.parse_args()
-    resolution = args.resolution[0]
-    analytic = args.analytic
-    plot_error = args.error
-
-    u, error = solve_mastery(resolution, analytic, plot_error)
-
-    u.plot()
+    u, error = solve_mastery(3, False, False)
