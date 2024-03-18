@@ -248,7 +248,9 @@ class FiniteElement(object):
 
 class VectorFiniteElement(FiniteElement):
     def __init__(self, fe: FiniteElement):
-        super().__init__(fe.cell, fe.degree, fe.nodes, fe.entity_nodes)
+        entity_nodes = copy.deepcopy(fe.entity_nodes)  # Avoid referencing the original fe
+        nodes = copy.deepcopy(fe.nodes)
+        super().__init__(fe.cell, fe.degree, nodes, entity_nodes)
 
         self.d = fe.cell.dim
         self.scalar_finite_element = fe
@@ -338,12 +340,10 @@ if __name__ == "__main__":
     vec_fe = VectorFiniteElement(lag_element)
 
     quad = gauss_quadrature(lag_element.cell, 3)
-    tab = vec_fe.tabulate(quad.points, grad=True)
+    tab = vec_fe.tabulate(quad.points, grad=False)
+    tab_vec = np.einsum("qli, ji -> ql", tab, vec_fe.node_weights)
+    print(tab_vec, tab_vec.shape)
     # print(tab, tab.shape)
-    # print(tab, tab.shape)
-    print(tab[:, :, :, 0])
-    print(tab[:, :, :, 1])
-
 
 
     # print(vec_fe.nodes, vec_fe.nodes_per_entity, vec_fe.node_count, vec_fe.entity_nodes, sep="\n")
