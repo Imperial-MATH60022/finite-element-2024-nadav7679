@@ -62,6 +62,9 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
     l[:n] = F
     T = sp.bmat([[A, B.transpose()], [B, None]], "lil")
 
+    # Boundary conditions
+
+
     return T, l
 
 
@@ -111,7 +114,18 @@ def solve_mastery(resolution, analytic=False, return_error=False):
 
     A, l = assemble(fs1, fs2, force_func)
 
-    # return (u, p) error
+    A = sp.csc_matrix(A)
+    luA = sp.linalg.splu(A)
+
+    sol = luA.solve(l)
+
+    u = Function(fs1,)
+    p = Function(fs2)
+
+    u.values = sol[:fs1.node_count]
+    p.values = sol[:fs2.node_count]
+
+    return (u, p), 0
 
 
 if __name__ == "__main__":
@@ -136,4 +150,5 @@ if __name__ == "__main__":
     #
     # u.plot()
 
-    u, error = solve_mastery(3, False, False)
+    (u,p), error = solve_mastery(3, False, False)
+
