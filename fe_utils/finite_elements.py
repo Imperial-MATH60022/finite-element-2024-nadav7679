@@ -281,20 +281,13 @@ class VectorFiniteElement(FiniteElement):
 
     def tabulate(self, points, grad=False):
         scalar_tab = self.scalar_finite_element.tabulate(points, grad)
+        scalar_tab = scalar_tab.repeat(self.d, 1)
 
-        if grad:  # TODO: verify grad implementation. Might be wrong. Maybe do the whole thing without a loop.
-            res = np.zeros((self.d * scalar_tab.shape[0], scalar_tab.shape[1], scalar_tab.shape[2], self.d),
-                           dtype=scalar_tab.dtype)
-            for i in range(self.d):
-                res[i::self.d, :, :, i] = scalar_tab
+        if grad:  # TODO: verify grad implementation. Might be wrong.
+            return np.einsum("ijl, jk -> ijlk", scalar_tab, self.node_weights)
 
         else:
-            #  e.g. d==2, then whenever i is odd we get res[i, :, 0] is zero, and for i even res[i, :, 1] is zeros.
-            res = np.zeros((self.d*scalar_tab.shape[0], scalar_tab.shape[1], self.d), dtype=scalar_tab.dtype)
-            for i in range(self.d):
-                res[i::self.d, :, i] = scalar_tab
-
-        return res
+            return np.einsum("ij, jk -> ijk", scalar_tab, self.node_weights)
 
 
 class LagrangeElement(FiniteElement):
@@ -339,12 +332,12 @@ if __name__ == "__main__":
     lag_element = LagrangeElement(ReferenceTriangle, 3)
     vec_fe = VectorFiniteElement(lag_element)
 
+    # quad = gauss_quadrature(lag_element.cell, 3)
+    # tab = vec_fe.tabulate(quad.points, grad=False)
+    # print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape, )
+    # print(tab[0, 0:4, :])
+
     quad = gauss_quadrature(lag_element.cell, 3)
-    tab = vec_fe.tabulate(quad.points, grad=False)
-    tab_vec = np.einsum("qli, ji -> ql", tab, vec_fe.node_weights)
-    print(tab_vec, tab_vec.shape)
-    # print(tab, tab.shape)
-
-
-    # print(vec_fe.nodes, vec_fe.nodes_per_entity, vec_fe.node_count, vec_fe.entity_nodes, sep="\n")
-    # print(len(vec_fe.node_weights), vec_fe.node_count)
+    tab = vec_fe.tabulate(quad.points, grad=True)
+    print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape)
+    print(tab[0, 1, :, 1])
