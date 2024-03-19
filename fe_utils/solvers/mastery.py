@@ -10,7 +10,7 @@ import scipy.sparse as sp
 import scipy.sparse.linalg as splinalg
 
 
-def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function):
+def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
     """Assume f is defined on fs1.
         fs1 = V,
         fs2 = Q.
@@ -24,13 +24,14 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function):
     A = sp.lil_matrix((n, n))
     B = sp.lil_matrix((m, n))
 
+
     # Quadrature for RHS
     quad1 = gauss_quadrature(fs1.element.cell, fs1.element.degree ** 2)
-    print(quad1.points.shape)
 
     # Tabulate
     local_phi = fs1.element.tabulate(quad1.points)
     grad_local_phi = fs1.element.tabulate(quad1.points, grad=True)
+    local_psi = fs2.element.tabulate(quad1.points)
 
     F = np.zeros(n)
     for c in range(fs1.mesh.entity_counts[-1]):
@@ -50,11 +51,18 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function):
 
 
         # Compute LHS - A:
-        # epsilon_phi = 0.5*(grad_local_phi + grad_local_phi.transpose((0, 1, 3, 2)))
-        # print(epsilon_phi.shape)
-        # epsilon_squared = np.einsum("...ab,...ab->...", epsilon_phi, epsilon_phi)
-        # print(grad_local_phi.shape, fs1_c_nodes.shape, epsilon_squared.shape)
-        # A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += jac_det * (epsilon_squared)
+        epsilon_phi = 0.5*(grad_local_phi + grad_local_phi.transpose((0, 1, 3, 2)))
+        epsilon_squared_w = np.einsum("q, qjab,qiab->ji", quad1.weights, epsilon_phi, epsilon_phi) # dot(eps(phi_i(xq)), eps(phi_j(xq))) contracted on q
+        A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += mu * jac_det * epsilon_squared_w
+
+        # Compute LHS - B:
+        div_phi = np.einsum("qjkl -> qj", grad_local_phi)
+        B[np.ix_(fs2_c_nodes, fs1_c_nodes)] += np.einsum("q, qi, qj -> ij",quad1.weights, local_psi, div_phi)
+
+    l[:n] = F
+    T = sp.bmat([[A, B.transpose()], [B, None]], "lil")
+
+    return T, l
 
 
 def solve_mastery(resolution, analytic=False, return_error=False):
