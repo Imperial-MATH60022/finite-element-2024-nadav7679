@@ -49,20 +49,31 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
         f_dot_phi = np.einsum("ql,qil->qi", f_decomposed, local_phi)
         F[fs1_c_nodes] += jac_det * (quad1.weights.transpose() @ f_dot_phi)  # Contracting quadrature rule
 
-
         # Compute LHS - A:
         epsilon_phi = 0.5*(grad_local_phi + grad_local_phi.transpose((0, 1, 3, 2)))
         epsilon_squared_w = np.einsum("q, qjab,qiab->ji", quad1.weights, epsilon_phi, epsilon_phi) # dot(eps(phi_i(xq)), eps(phi_j(xq))) contracted on q
         A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += mu * jac_det * epsilon_squared_w
 
         # Compute LHS - B:
+        # TODO: the line below might be a source of trouble. Both tabulate with grad, and the following line are sketchy
         div_phi = np.einsum("qjkl -> qj", grad_local_phi)
         B[np.ix_(fs2_c_nodes, fs1_c_nodes)] += np.einsum("q, qi, qj -> ij",quad1.weights, local_psi, div_phi)
 
     l[:n] = F
     T = sp.bmat([[A, B.transpose()], [B, None]], "lil")
 
-    # Boundary conditions
+    # Boundary conditions on u:
+    u_boundary = boundary_nodes(fs1)
+    l[u_boundary] = 0
+    A[u_boundary, :] = 0
+    A[u_boundary, u_boundary] = 1
+
+    # Boundary condition on p:
+    arbitrary_dof = m + 2  # 2 is arbitrary here, m is just where the enumeration begins for fs2
+    l[arbitrary_dof] = 0
+    A[arbitrary_dof, :] = 0
+    A[arbitrary_dof, arbitrary_dof] = 1
+
 
 
     return T, l
@@ -80,7 +91,7 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     numerical solution should be returned in place of the solution.
     """
 
-    degree = 2
+    degree = 4
 
     mesh = UnitSquareMesh(resolution, resolution)
     fe = LagrangeElement(mesh.cell, degree)
@@ -108,7 +119,7 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     force_func.interpolate(lambda x:
                            (
                                -32 * pi * mu * cos(2 * pi * x[0]) * sin(2 * pi * x[1]),
-                               -32 * pi * mu * cos(2 * pi * x[1]) * sin(2 * pi * x[0]),
+                               32 * pi * mu * cos(2 * pi * x[1]) * sin(2 * pi * x[0]),
                            )
                            )
 
@@ -125,7 +136,31 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     u.values = sol[:fs1.node_count]
     p.values = sol[:fs2.node_count]
 
-    return (u, p), 0
+    # TODO: Compute error. Probably using errornorm function.
+    error = 0
+
+    return (u, p), error
+
+
+def boundary_nodes(fs):
+    """Find the list of boundary nodes in fs, modified to work with VectorFiniteElement.
+    This is a unit-square-specific solution.
+    """
+    eps = 1.e-10
+
+    f = Function(fs)
+
+    def on_boundary(x):
+        """Return 1 if on the boundary, 0. otherwise."""
+        if x[0] < eps or x[0] > 1 - eps or x[1] < eps or x[1] > 1 - eps:
+            return (1., 1.) if isinstance(fs.element, VectorFiniteElement) else 1.
+        else:
+            return (0., 0.) if isinstance(fs.element, VectorFiniteElement) else 0.
+
+    f.interpolate(on_boundary)
+
+    return np.flatnonzero(f.values)
+
 
 
 if __name__ == "__main__":
@@ -151,4 +186,6 @@ if __name__ == "__main__":
     # u.plot()
 
     (u,p), error = solve_mastery(3, False, False)
+    u.plot()
+    p.plot()
 
