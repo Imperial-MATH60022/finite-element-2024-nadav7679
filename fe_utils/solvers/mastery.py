@@ -43,17 +43,19 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function):
         fs1_c_nodes = fs1.cell_nodes[c, :]
         fs2_c_nodes = fs2.cell_nodes[c, :]
 
-        # Compute RHS TODO: Perhaps duplicate d times phi_squared in dimension[1], so that it would have the same number of nodes and we could sum it:
-        # phi_squared = np.einsum("qkl,qil->qki", local_phi, local_phi)
-        # print(phi_squared.shape, f.values[fs1_c_nodes].shape, fs1_c_nodes.shape)
-        # f_dot_phi = np.einsum("k,qki->qi", f.values[fs1_c_nodes], phi_squared)
-        # F[fs1_c_nodes] += jac_det * (np.einsum("i,qij->q", f.values[fs1_c_nodes], phi_squared)) @ quad1.weights
+        # Compute RHS
+        f_decomposed = np.einsum("k,qkl->ql", f.values[fs1_c_nodes], local_phi) # f evaluated at x_q, represented as a sum of basis phi_k
+        f_dot_phi = np.einsum("ql,qil->qi", f_decomposed, local_phi)
+        F[fs1_c_nodes] += jac_det * (quad1.weights.transpose() @ f_dot_phi)  # Contracting quadrature rule
+
 
         # Compute LHS - A:
-        epsilon_phi = 0.5*(grad_local_phi + grad_local_phi.transpose((0, 1, 3, 2)))
-        epsilon_squared = np.einsum("...ab,...ab->...", epsilon_phi, epsilon_phi)
-        print(grad_local_phi.shape, fs1_c_nodes.shape, epsilon_squared.shape)
-        A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += jac_det * (epsilon_squared)
+        # epsilon_phi = 0.5*(grad_local_phi + grad_local_phi.transpose((0, 1, 3, 2)))
+        # print(epsilon_phi.shape)
+        # epsilon_squared = np.einsum("...ab,...ab->...", epsilon_phi, epsilon_phi)
+        # print(grad_local_phi.shape, fs1_c_nodes.shape, epsilon_squared.shape)
+        # A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += jac_det * (epsilon_squared)
+
 
 def solve_mastery(resolution, analytic=False, return_error=False):
     """This function should solve the mastery problem with the given
@@ -74,9 +76,6 @@ def solve_mastery(resolution, analytic=False, return_error=False):
 
     vec_fe = VectorFiniteElement(fe)
     fs1 = FunctionSpace(mesh, vec_fe)
-
-    print(vec_fe.nodes.shape)
-    print(fs1.cell_nodes[0, :].shape)
 
     fs2 = FunctionSpace(mesh, fe)
 
