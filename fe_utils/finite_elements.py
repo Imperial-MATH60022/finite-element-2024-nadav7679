@@ -283,8 +283,8 @@ class VectorFiniteElement(FiniteElement):
         scalar_tab = self.scalar_finite_element.tabulate(points, grad)
         scalar_tab = scalar_tab.repeat(self.d, 1)
 
-        if grad:  # TODO: verify grad implementation. Might be wrong.
-            return np.einsum("ijl, jk -> ijlk", scalar_tab, self.node_weights)
+        if grad:
+            return np.einsum("ijl, jk -> ijkl", scalar_tab, self.node_weights)
 
         else:
             return np.einsum("ij, jk -> ijk", scalar_tab, self.node_weights)
@@ -329,7 +329,7 @@ class LagrangeElement(FiniteElement):
 
 
 if __name__ == "__main__":
-    lag_element = LagrangeElement(ReferenceTriangle, 3)
+    lag_element = LagrangeElement(ReferenceTriangle, 1)
     vec_fe = VectorFiniteElement(lag_element)
 
     # quad = gauss_quadrature(lag_element.cell, 3)
@@ -337,7 +337,10 @@ if __name__ == "__main__":
     # print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape, )
     # print(tab[0, 0:4, :])
 
-    quad = gauss_quadrature(lag_element.cell, 3)
-    tab = vec_fe.tabulate(quad.points, grad=True)
-    print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape)
-    print(tab[0, 1, :, 1])
+    quad = gauss_quadrature(lag_element.cell, 5)
+    tab = lag_element.tabulate(quad.points, grad=True)
+    # print(tab[0, 4, :])
+
+    tab_vec = vec_fe.tabulate(quad.points, grad=True)
+    # print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape)
+    print(tab_vec[:, 4, 0, :])
