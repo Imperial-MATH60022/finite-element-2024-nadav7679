@@ -26,12 +26,12 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
 
 
     # Quadrature for RHS
-    quad1 = gauss_quadrature(fs1.element.cell, fs1.element.degree ** 2)
+    quad = gauss_quadrature(fs1.element.cell, fs1.element.degree ** 2)
 
     # Tabulate
-    local_phi = fs1.element.tabulate(quad1.points)
-    grad_local_phi = fs1.element.tabulate(quad1.points, grad=True)
-    local_psi = fs2.element.tabulate(quad1.points)
+    phi = fs1.element.tabulate(quad.points)
+    grad_phi = fs1.element.tabulate(quad.points, grad=True)
+    psi = fs2.element.tabulate(quad.points)
 
     F = np.zeros(n)
     for c in range(fs1.mesh.entity_counts[-1]):
@@ -39,42 +39,43 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
 
         jac = fs1.mesh.jacobian(c)
         jac_det = np.abs(np.linalg.det(jac))
-        jac_inv_t = np.linalg.inv(jac)
+        jac_inv = np.linalg.inv(jac)
 
         fs1_c_nodes = fs1.cell_nodes[c, :]
         fs2_c_nodes = fs2.cell_nodes[c, :]
 
         # Compute RHS
-        f_decomposed = np.einsum("k,qkl->ql", f.values[fs1_c_nodes], local_phi) # f evaluated at x_q, represented as a sum of basis phi_k
-        f_dot_phi = np.einsum("ql,qil->qi", f_decomposed, local_phi)
-        F[fs1_c_nodes] += jac_det * (quad1.weights.transpose() @ f_dot_phi)  # Contracting quadrature rule
+        f_decomposed = np.einsum("k,qkl->ql", f.values[fs1_c_nodes], phi) # f evaluated at x_q, represented as a sum of basis phi_k
+        f_dot_phi = np.einsum("ql,qil->qi", f_decomposed, phi)
+        F[fs1_c_nodes] += jac_det * (quad.weights.transpose() @ f_dot_phi)  # Contracting quadrature rule
 
         # Compute LHS - A:
-        epsilon_phi = 0.5*(grad_local_phi + grad_local_phi.transpose((0, 1, 3, 2)))
-        epsilon_squared_w = np.einsum("q, qjab,qiab->ji", quad1.weights, epsilon_phi, epsilon_phi) # dot(eps(phi_i(xq)), eps(phi_j(xq))) contracted on q
-        A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += mu * jac_det * epsilon_squared_w
+        # local_grad_phi = np.einsum("db, qjad->qjab", jac_inv, grad_phi) # d for dummy
+        local_grad_phi = grad_phi @ jac_inv
+        epsilon_phi = 0.5*(local_grad_phi + local_grad_phi.transpose((0, 1, 3, 2)))
+        epsilon_dot_epsilon = np.einsum("qiab,qjab->qij", epsilon_phi, epsilon_phi) # dot(eps(phi_i(xq)), eps(phi_j(xq))) contracted on q
+        A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += mu * jac_det * np.einsum("q, qij->ij", quad.weights, epsilon_dot_epsilon)
+
 
         # Compute LHS - B:
-        # TODO: the line below might be a source of trouble. Both tabulate with grad, and the following line are sketchy
-        div_phi = np.einsum("qjkl -> qj", grad_local_phi)
-        B[np.ix_(fs2_c_nodes, fs1_c_nodes)] += np.einsum("q, qi, qj -> ij",quad1.weights, local_psi, div_phi)
+        # div_phi = np.trace(local_grad_phi, axis1=2, axis2=3)
+        div_phi = np.einsum("qjaa->qj", local_grad_phi)
+        B[np.ix_(fs2_c_nodes, fs1_c_nodes)] += jac_det * np.einsum("q, qi, qj -> ij", quad.weights, psi, div_phi)
 
     l[:n] = F
     T = sp.bmat([[A, B.transpose()], [B, None]], "lil")
 
     # Boundary conditions on u:
     u_boundary = boundary_nodes(fs1)
-    l[u_boundary] = 0
-    A[u_boundary, :] = 0
-    A[u_boundary, u_boundary] = 1
+    l[u_boundary] = 0.
+    T[u_boundary, :] = 1E-17  # Non convergence with 0 then roundoff error instead
+    T[u_boundary, u_boundary] = 1.
 
     # Boundary condition on p:
-    arbitrary_dof = m + 2  # 2 is arbitrary here, m is just where the enumeration begins for fs2
-    l[arbitrary_dof] = 0
-    A[arbitrary_dof, :] = 0
-    A[arbitrary_dof, arbitrary_dof] = 1
-
-
+    arbitrary_dof = n + 1   # 1 is arbitrary here, n is just where the enumeration begins for fs2
+    l[arbitrary_dof] = 0.
+    T[arbitrary_dof, :] = 1e-17
+    T[arbitrary_dof, arbitrary_dof] = 1.
 
     return T, l
 
@@ -91,7 +92,7 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     numerical solution should be returned in place of the solution.
     """
 
-    degree = 4
+    degree = 5
 
     mesh = UnitSquareMesh(resolution, resolution)
     fe = LagrangeElement(mesh.cell, degree)
@@ -136,8 +137,20 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     u.values = sol[:fs1.node_count]
     p.values = sol[:fs2.node_count]
 
-    # TODO: Compute error. Probably using errornorm function.
-    error = 0
+    # Calculate error
+    real_p = Function(fs2)
+    error_p = errornorm(p, real_p)
+
+    real_u = Function(fs1)
+    real_u.interpolate(lambda x:
+                       (
+                           2*pi*(1-cos(2*pi*x[0])) * sin(2*pi*x[1]),
+                           -2*pi*(1-cos(2*pi*x[1])) * sin(2*pi*x[0]),
+                       )
+                       )
+    error_u = errornorm(u, real_u)
+
+    error = np.sqrt(error_u**2 + error_p**2)
 
     return (u, p), error
 
@@ -185,7 +198,8 @@ if __name__ == "__main__":
     #
     # u.plot()
 
-    (u,p), error = solve_mastery(3, False, False)
+    (u,p), error = solve_mastery(4, False, False)
+    print(error)
     u.plot()
     p.plot()
 
