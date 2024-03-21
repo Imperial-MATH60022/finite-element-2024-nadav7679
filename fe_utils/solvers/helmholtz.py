@@ -45,7 +45,7 @@ def assemble(fs: FunctionSpace, f: Function):
 
         jac = fs.mesh.jacobian(c)
         jac_det = np.abs(np.linalg.det(jac))
-        jac_inv_t = np.linalg.inv(jac)
+        jac_inv = np.linalg.inv(jac)
 
         c_nodes = f.function_space.cell_nodes[c, :]
 
@@ -56,7 +56,7 @@ def assemble(fs: FunctionSpace, f: Function):
         l[fs.cell_nodes[c, :]] += jac_det * cell_f_int
 
         # LFS:
-        jac_grad_phi = np.einsum("da,qid->aiq", jac_inv_t, local_phi_grad)
+        jac_grad_phi = np.einsum("da,qid->aiq", jac_inv, local_phi_grad)
         jac_grad_phi_squared = np.einsum("aiq,ajq->ijq", jac_grad_phi, jac_grad_phi)
         local_phi_squared = np.einsum("qi,qj->ijq", local_phi, local_phi)
 
