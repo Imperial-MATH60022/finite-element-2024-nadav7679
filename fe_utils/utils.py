@@ -1,9 +1,12 @@
 import numpy as np
 from .quadrature import gauss_quadrature
+from .finite_elements import VectorFiniteElement
 
 
 def errornorm(f1, f2):
-    """Calculate the L^2 norm of the difference between f1 and f2."""
+    """Calculate the L^2 norm of the difference between f1 and f2.
+        If both functions are VectorFiniteElements, return 2d norm
+    """
 
     fs1 = f1.function_space
     fs2 = f2.function_space
@@ -30,8 +33,14 @@ def errornorm(f1, f2):
         detJ = np.abs(np.linalg.det(J))
 
         # Compute the actual cell quadrature.
-        norm += np.dot((np.dot(f1.values[nodes1], phi.T) -
-                        np.dot(f2.values[nodes2], psi.T))**2,
-                       Q.weights) * detJ
+        if isinstance(f1.function_space.element, VectorFiniteElement) and isinstance(f2.function_space.element, VectorFiniteElement):
+            c_f1 = np.einsum("i, qil->ql", f1.values[nodes1], phi)
+            c_f2 = np.einsum("i, qil->ql", f2.values[nodes2], psi)
+            norm += detJ * (Q.weights @ np.linalg.norm(c_f1 - c_f2, ord=2, axis=1))  # Euclid 2-norm, contract weights
+
+        else:
+            norm += np.dot((np.dot(f1.values[nodes1], phi.T) -
+                            np.dot(f2.values[nodes2], psi.T))**2,
+                           Q.weights) * detJ
 
     return norm**0.5
