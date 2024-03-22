@@ -44,13 +44,14 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
         fs2_c_nodes = fs2.cell_nodes[c, :]
 
         # Compute RHS
-        f_decomposed = np.einsum("k,qkl->ql", f.values[fs1_c_nodes], phi) # f evaluated at x_q, represented as a sum of basis phi_k
+        f_decomposed = np.einsum(
+            "k,qkl->ql", f.values[fs1_c_nodes], phi)  # f as a sum of basis phi_k eval at x_q,
         f_dot_phi = np.einsum("ql,qil->qi", f_decomposed, phi)
         l[fs1_c_nodes] += jac_det * (quad.weights.transpose() @ f_dot_phi)  # Contracting quadrature rule
 
         # Compute LHS - A:
         local_grad_phi = np.einsum("db, qjdl ->qjbl", jac_inv, grad_phi)
-        epsilon = 0.5*(local_grad_phi + local_grad_phi.transpose((0, 1, 3, 2)))
+        epsilon = 0.5 * (local_grad_phi + local_grad_phi.transpose((0, 1, 3, 2)))
         A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += mu * jac_det * np.einsum(
             "q, qibl, qjbl->ij", quad.weights, epsilon, epsilon)
 
@@ -98,11 +99,10 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     real_p = Function(fs2)
     real_u = Function(fs1)
     real_u.interpolate(lambda x:
-                                (
-                                    2 * pi * (1 - cos(2 * pi * x[0])) * sin(2 * pi * x[1]),
-                                    -2 * pi * (1 - cos(2 * pi * x[1])) * sin(2 * pi * x[0])
-                                ))
-
+                       (
+                           2 * pi * (1 - cos(2 * pi * x[0])) * sin(2 * pi * x[1]),
+                           -2 * pi * (1 - cos(2 * pi * x[1])) * sin(2 * pi * x[0])
+                       ))
 
     if analytic:
         return (real_u, real_p), 0.0
@@ -115,7 +115,6 @@ def solve_mastery(resolution, analytic=False, return_error=False):
             2 * pi * x[0]) * cos(2 * pi * x[1])
     ))
 
-
     A, l = assemble(fs1, fs2, force_func)
 
     A = sp.csc_matrix(A)
@@ -123,14 +122,18 @@ def solve_mastery(resolution, analytic=False, return_error=False):
 
     sol = luA.solve(l)
 
-    u = Function(fs1,)
+    u = Function(fs1, )
     p = Function(fs2)
 
     u.values[:] = sol[:fs1.node_count]
     p.values[:] = sol[fs1.node_count:]
 
     # Calculate error
-    error = np.sqrt(errornorm(u, real_u)**2 + errornorm(p, real_p)**2)
+    error = np.sqrt(errornorm(u, real_u) ** 2 + errornorm(p, real_p) ** 2)
+
+    if return_error:
+        u.values = real_u.values - u.values
+        p.values = real_p.values - p.values
 
     return (u, p), error
 
@@ -155,31 +158,25 @@ def boundary_nodes(fs):
     return np.flatnonzero(f.values)
 
 
-
 if __name__ == "__main__":
-    # parser = ArgumentParser(
-    #     description="""Solve the mastery problem.""")
-    # parser.add_argument(
-    #     "--analytic", action="store_true",
-    #     help="Plot the analytic solution instead of solving the finite"
-    #          " element problem.")
-    # parser.add_argument("--error", action="store_true",
-    #                     help="Plot the error instead of the solution.")
-    # parser.add_argument(
-    #     "resolution", type=int, nargs=1,
-    #     help="The number of cells in each direction on the mesh."
-    # )
-    # args = parser.parse_args()
-    # resolution = args.resolution[0]
-    # analytic = args.analytic
-    # plot_error = args.error
-    #
-    # u, error = solve_mastery(resolution, analytic, plot_error)
+    parser = ArgumentParser(
+        description="""Solve the mastery problem.""")
+    parser.add_argument(
+        "--analytic", action="store_true",
+        help="Plot the analytic solution instead of solving the finite"
+             " element problem.")
+    parser.add_argument("--error", action="store_true",
+                        help="Plot the error instead of the solution.")
+    parser.add_argument(
+        "resolution", type=int, nargs=1,
+        help="The number of cells in each direction on the mesh."
+    )
+    args = parser.parse_args()
+    resolution = args.resolution[0]
+    analytic = args.analytic
+    plot_error = args.error
 
-    # u.plot()
+    (u, p), error = solve_mastery(resolution, analytic, plot_error)
 
-    (u,p), error = solve_mastery(10, False, False)
-    print(error)
-    # u.plot()
-    # p.plot()
-
+    u.plot()
+    p.plot()
