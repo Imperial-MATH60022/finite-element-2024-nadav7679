@@ -14,12 +14,11 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
     """Assume f is defined on fs1.
         fs1 = V,
         fs2 = Q.
-
     """
     n = fs1.node_count
     m = fs2.node_count
 
-    # Solve Tu = l, where T is block matrix composed of A, B.
+    # Define LHS matrices and RHS vector
     l = np.zeros(n + m)
     A = sp.lil_matrix((n, n))
     B = sp.lil_matrix((m, n))
@@ -34,8 +33,6 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
     psi = fs2.element.tabulate(quad.points)
 
     for c in range(fs1.mesh.entity_counts[-1]):
-        # local_phi.shape = (q, i, d) where q is num of quad points, i is nodes, d is vector dimension
-
         jac = fs1.mesh.jacobian(c)
         jac_det = np.abs(np.linalg.det(jac))
         jac_inv = np.linalg.inv(jac)
@@ -43,14 +40,14 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
         fs1_c_nodes = fs1.cell_nodes[c, :]
         fs2_c_nodes = fs2.cell_nodes[c, :]
 
-        # Compute RHS
+        # Compute RHS vector
         f_decomposed = np.einsum(
             "k,qkl->ql", f.values[fs1_c_nodes], phi)  # f as a sum of basis phi_k eval at x_q,
         f_dot_phi = np.einsum("ql,qil->qi", f_decomposed, phi)
-        l[fs1_c_nodes] += jac_det * (quad.weights.transpose() @ f_dot_phi)  # Contracting quadrature rule
+        l[fs1_c_nodes] += jac_det * (quad.weights.transpose() @ f_dot_phi)
 
         # Compute LHS - A:
-        local_grad_phi = np.einsum("db, qjdl ->qjbl", jac_inv, grad_phi)
+        local_grad_phi = np.einsum("db, qjdl ->qjbl", jac_inv, grad_phi)  # Change to local grad
         epsilon = 0.5 * (local_grad_phi + local_grad_phi.transpose((0, 1, 3, 2)))
         A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += mu * jac_det * np.einsum(
             "q, qibl, qjbl->ij", quad.weights, epsilon, epsilon)
@@ -71,9 +68,7 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
     Z[0, 0] = 1
     l[n] = 0  # This is the first node for fs2
 
-    T = sp.bmat([[A, B.T], [B, Z]], format="lil")
-
-    return T, l
+    return sp.bmat([[A, B.T], [B, Z]], format="lil"), l
 
 
 def solve_mastery(resolution, analytic=False, return_error=False):
@@ -87,7 +82,7 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     true then the difference between the analytic solution and the
     numerical solution should be returned in place of the solution.
     """
-
+    # Define mesh and finite elements
     mesh = UnitSquareMesh(resolution, resolution)
     fe1 = LagrangeElement(mesh.cell, 2)
     fe2 = LagrangeElement(mesh.cell, 1)
@@ -96,6 +91,7 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     fs1 = FunctionSpace(mesh, vec_fe)
     fs2 = FunctionSpace(mesh, fe2)
 
+    # Analytical solutions
     real_p = Function(fs2)
     real_u = Function(fs1)
     real_u.interpolate(lambda x:
@@ -107,6 +103,7 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     if analytic:
         return (real_u, real_p), 0.0
 
+    # Manufactured force function (courtesy of algebra and sympy)
     force_func = Function(fs1)
     force_func.interpolate(lambda x: (
         4.0 * pi ** 3 * (1 - cos(2 * pi * x[0])) * sin(2 * pi * x[1]) - 4.0 * pi ** 3 * sin(
@@ -115,6 +112,7 @@ def solve_mastery(resolution, analytic=False, return_error=False):
             2 * pi * x[0]) * cos(2 * pi * x[1])
     ))
 
+    # Assemble and solve the system
     A, l = assemble(fs1, fs2, force_func)
 
     A = sp.csc_matrix(A)
@@ -122,13 +120,14 @@ def solve_mastery(resolution, analytic=False, return_error=False):
 
     sol = luA.solve(l)
 
-    u = Function(fs1, )
+    # Deconstruct solution to relative functions
+    u = Function(fs1)
     p = Function(fs2)
 
     u.values[:] = sol[:fs1.node_count]
     p.values[:] = sol[fs1.node_count:]
 
-    # Calculate error
+    # Calculate error (note modification in utils.errornorm)
     error = np.sqrt(errornorm(u, real_u) ** 2 + errornorm(p, real_p) ** 2)
 
     if return_error:
