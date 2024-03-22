@@ -28,7 +28,7 @@ def assemble(fs: FunctionSpace, f: Function):
         raise ValueError("fs and f supposed to be defined on the same mesh")
 
     # Create an appropriate (complete) quadrature rule.
-    quad = gauss_quadrature(fs.element.cell, fs.element.degree**2)
+    quad = gauss_quadrature(fs.element.cell, fs.element.degree ** 2)
 
     # Tabulate the basis functions and their gradients at the quadrature points.
     local_phi = fs.element.tabulate(quad.points)
@@ -60,7 +60,8 @@ def assemble(fs: FunctionSpace, f: Function):
         jac_grad_phi_squared = np.einsum("aiq,ajq->ijq", jac_grad_phi, jac_grad_phi)
         local_phi_squared = np.einsum("qi,qj->ijq", local_phi, local_phi)
 
-        A[np.ix_(c_nodes, c_nodes)] += jac_det * ((local_phi_squared + jac_grad_phi_squared) @ quad.weights)  # Contract weights
+        A[np.ix_(c_nodes, c_nodes)] += jac_det * (
+                    (local_phi_squared + jac_grad_phi_squared) @ quad.weights)  # Contract weights
 
     return A, l
 
@@ -77,7 +78,7 @@ def solve_helmholtz(degree, resolution, analytic=False, return_error=False):
 
     # Create a function to hold the analytic solution for comparison purposes.
     analytic_answer = Function(fs)
-    analytic_answer.interpolate(lambda x: cos(4*pi*x[0])*x[1]**2*(1.-x[1])**2)
+    analytic_answer.interpolate(lambda x: cos(4 * pi * x[0]) * x[1] ** 2 * (1. - x[1]) ** 2)
 
     # If the analytic answer has been requested then bail out now.
     if analytic:
@@ -86,8 +87,8 @@ def solve_helmholtz(degree, resolution, analytic=False, return_error=False):
     # Create the right hand side function and populate it with the
     # correct values.
     f = Function(fs)
-    f.interpolate(lambda x: ((16*pi**2 + 1)*(x[1] - 1)**2*x[1]**2 - 12*x[1]**2 + 12*x[1] - 2) *
-                  cos(4*pi*x[0]))
+    f.interpolate(lambda x: ((16 * pi ** 2 + 1) * (x[1] - 1) ** 2 * x[1] ** 2 - 12 * x[1] ** 2 + 12 * x[1] - 2) *
+                            cos(4 * pi * x[0]))
 
     # Assemble the finite element system.
     A, l = assemble(fs, f)

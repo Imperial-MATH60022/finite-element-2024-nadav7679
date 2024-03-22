@@ -236,7 +236,7 @@ class FiniteElement(object):
 
 class VectorFiniteElement(FiniteElement):
     def __init__(self, fe: FiniteElement):
-        entity_nodes = copy.deepcopy(fe.entity_nodes)  # Avoid referencing the original fe
+        entity_nodes = copy.deepcopy(fe.entity_nodes)  # Avoid referencing given fe
         nodes = copy.deepcopy(fe.nodes)
         super().__init__(fe.cell, fe.degree, nodes, entity_nodes)
 
@@ -244,7 +244,6 @@ class VectorFiniteElement(FiniteElement):
         self.scalar_finite_element = fe
 
         # Entity nodes
-
         for delta, d_nodes in self.entity_nodes.items():
             # e.g. delta = 1, d_nodes = {0: [0, 1], 1: [3, 4]}
             for i in d_nodes:
@@ -296,8 +295,6 @@ class LagrangeElement(FiniteElement):
         The implementation of this class is left as an :ref:`exercise
         <ex-lagrange-element>`.
         """
-        if cell.dim > 2:
-            raise NotImplemented(f"{cell.dim}D is hard :(")
 
         nodes = lagrange_points(cell, degree)  # Assuming nodes are in entity order
         n = len(nodes)
@@ -319,21 +316,3 @@ class LagrangeElement(FiniteElement):
             entity_nodes[1] = {0: node_indices[2:]}
 
         super(LagrangeElement, self).__init__(cell, degree, nodes, entity_nodes)
-
-
-if __name__ == "__main__":
-    lag_element = LagrangeElement(ReferenceTriangle, 1)
-    vec_fe = VectorFiniteElement(lag_element)
-
-    # quad = gauss_quadrature(lag_element.cell, 3)
-    # tab = vec_fe.tabulate(quad.points, grad=False)
-    # print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape, )
-    # print(tab[0, 0:4, :])
-
-    quad = gauss_quadrature(lag_element.cell, 5)
-    tab = lag_element.tabulate(quad.points, grad=True)
-    # print(tab[0, 4, :])
-
-    tab_vec = vec_fe.tabulate(quad.points, grad=True)
-    # print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape)
-    print(tab_vec[:, 4, 0, :])
