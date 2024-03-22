@@ -4,6 +4,7 @@ from sympy import diff, Array, symbols, lambdify
 
 from .reference_elements import ReferenceInterval, ReferenceTriangle, ReferenceCell
 from .quadrature import gauss_quadrature
+
 np.seterr(invalid='ignore', divide='ignore')
 
 
@@ -22,36 +23,36 @@ def lagrange_points(cell: ReferenceCell, degree):
     """
     if cell.dim > 2:
         raise NotImplementedError(f"{dimension}D is hard :(")
-    
+
     dimension = cell.dim
     verticies = cell.vertices
     lpoints = copy.deepcopy(verticies)
     intervals = cell.topology[1]
     intervals = dict(sorted(intervals.items()))
-    
-    
+
     # create edge points in topological order
-    for _, edge in intervals.items(): 
+    for _, edge in intervals.items():
         x1 = verticies[int(edge[0])]
         x2 = verticies[int(edge[1])]
-        
+
         edge_points_num = degree + 1
-        edge_points = np.linspace(x1, x2, edge_points_num)[1: -1] # create p+1 equidistance points on an edge (inc. vertices)
+        edge_points = np.linspace(x1, x2, edge_points_num)[
+                      1: -1]  # create p+1 equidistance points on an edge (inc. vertices)
         # print(lpoints, inner_points)
-        lpoints = np.concatenate((lpoints,edge_points))
-    
+        lpoints = np.concatenate((lpoints, edge_points))
+
     # create inner points in some order
     if dimension == 2 and degree >= 3:
-        for i in range(1, degree-1):
-            num_interval_points = degree + 1 - i # amount of interval points is decreasing w. i
+        for i in range(1, degree - 1):
+            num_interval_points = degree + 1 - i  # amount of interval points is decreasing w. i
             x_i = [0, i]
-            x_end = [num_interval_points - 1, i] # x-coord. of interval end-point is (deg-i, i)
-            
-            inner_points = 1/degree * np.linspace(x_i, x_end, num_interval_points)[1: -1]
+            x_end = [num_interval_points - 1, i]  # x-coord. of interval end-point is (deg-i, i)
+
+            inner_points = 1 / degree * np.linspace(x_i, x_end, num_interval_points)[1: -1]
             lpoints = np.concatenate((lpoints, inner_points))
 
     return lpoints
-    
+
 
 def _get_vandermonde_row(p, degree):
     """Internal utility function to calculate a row of the
@@ -62,62 +63,60 @@ def _get_vandermonde_row(p, degree):
     
     :returns: a numpy array containing the Vandermonde row for the point
     """
-    
+
     if len(p) == 1:
-        return np.vander(p, degree+1, increasing=True)[0]
-    
+        return np.vander(p, degree + 1, increasing=True)[0]
+
     row = np.array([])
-    for i in range(1, degree+2): # vandermonde w deg=1 has i=1, 2
+    for i in range(1, degree + 2):  # vandermonde w deg=1 has i=1, 2
         x, y = p[0], p[1]
         x_powers = np.vander([x], i)[0]
         y_powers = np.vander([y], i, increasing=True)[0]
-        
-        vander_row = x_powers*y_powers
+
+        vander_row = x_powers * y_powers
         row = np.append(row, vander_row)
-        
-        
+
     return row
 
+
 def _vandermonde_matrix(cell: ReferenceCell, degree: int, points):
-        
     for i, x in enumerate(points):
         if not i:
             vander_row = _get_vandermonde_row(x, degree)
-            vandermonde = vander_row.reshape((1, len(vander_row))) # reshape array into 1-row matrix 
+            vandermonde = vander_row.reshape((1, len(vander_row)))  # reshape array into 1-row matrix
             continue
-        
+
         x_row = _get_vandermonde_row(x, degree)
         vandermonde = np.vstack((vandermonde, x_row))
-    
+
     return vandermonde
 
 
 def _vandermonde_matrix_grad(cell: ReferenceCell, degree: int, points):
     x, y = symbols("x y")
     symbol_point = [x, y] if cell.dim == 2 else [x]
-    
+
     symbol_vander_arr = Array(_vandermonde_matrix(cell, degree, [symbol_point])[0])
     x_grad_fn = lambdify(symbol_point, symbol_vander_arr.diff(x), 'numpy')
-    
+
     if cell.dim == 2:
         y_grad_fn = lambdify(symbol_point, symbol_vander_arr.diff(y), 'numpy')
-    
+
     gradmonde = np.zeros((len(points), len(symbol_vander_arr), cell.dim))
     for i, p in enumerate(points):
         if cell.dim == 1:
             x_grad = x_grad_fn(p[0])
             level = np.array([x_grad])
-            
+
         else:
             x_grad = x_grad_fn(x=p[0], y=p[1])
             y_grad = y_grad_fn(x=p[0], y=p[1])
             level = np.array([x_grad, y_grad])
-            
+
         gradmonde[i] = np.transpose(level)
-        
+
     return gradmonde
 
-        
 
 def vandermonde_matrix(cell: ReferenceCell, degree: int, points, grad=False):
     """Construct the generalised Vandermonde matrix for polynomials of the
@@ -137,7 +136,7 @@ def vandermonde_matrix(cell: ReferenceCell, degree: int, points, grad=False):
         raise NotImplemented(f"{cell.dim}D is hard :(")
 
     return _vandermonde_matrix_grad(cell, degree, points) if grad \
-            else _vandermonde_matrix(cell, degree, points)
+        else _vandermonde_matrix(cell, degree, points)
 
 
 class FiniteElement(object):
@@ -175,18 +174,18 @@ class FiniteElement(object):
             #: ``nodes_per_entity[d]`` is the number of entities
             #: associated with an entity of dimension d.
             self.nodes_per_entity = np.array([len(entity_nodes[d][0])
-                                              for d in range(cell.dim+1)])
+                                              for d in range(cell.dim + 1)])
 
         # Replace this exception with some code which sets
         # self.basis_coefs
         # to an array of polynomial coefficients defining the basis functions.
         self.basis_coefs = np.linalg.inv(
             vandermonde_matrix(
-                    self.cell,
-                    self.degree,
-                    self.nodes,
-                )
+                self.cell,
+                self.degree,
+                self.nodes,
             )
+        )
 
         #: The number of nodes in this element.
         self.node_count = nodes.shape[0]
@@ -211,17 +210,13 @@ class FiniteElement(object):
         <ex-tabulate>`.
 
         """
-        
+
         vander_matrix = vandermonde_matrix(self.cell, self.degree, points, grad)
         if grad:
             return np.einsum("ilk,lj -> ijk", vander_matrix, self.basis_coefs)
-        
+
         tabulation = vander_matrix @ self.basis_coefs
         return tabulation
-        
-        
-
-
 
     def interpolate(self, fn):
         """Interpolate fn onto this finite element by evaluating it
@@ -262,7 +257,8 @@ class VectorFiniteElement(FiniteElement):
             for i in d_nodes:
                 if self.entity_nodes[delta][i]:
                     # Expand each node number n with the new node numberings (d*n, ..., d*n + d), then concat.
-                    self.entity_nodes[delta][i] = np.concatenate([np.arange(self.d*n, self.d*(n+1)) for n in self.entity_nodes[delta][i]])
+                    self.entity_nodes[delta][i] = np.concatenate(
+                        [np.arange(self.d * n, self.d * (n + 1)) for n in self.entity_nodes[delta][i]])
                 else:
                     continue
 
@@ -274,20 +270,24 @@ class VectorFiniteElement(FiniteElement):
 
         # Node weights
         # self.node_weights = np.eye(d)
-        self.node_weights = np.tile(np.eye(self.d), (self.node_count, 1)) # Repeat eye for each *distinct* node
+        self.node_weights = np.tile(np.eye(self.d), (self.node_count, 1))  # Repeat eye for each *distinct* node
 
         # Node count (indistinct nodes)
         self.node_count = self.nodes.shape[0]
 
     def tabulate(self, points, grad=False):
         scalar_tab = self.scalar_finite_element.tabulate(points, grad)
-        scalar_tab = scalar_tab.repeat(self.d, 1)
+        shape = (scalar_tab.shape[0], self.d * scalar_tab.shape[1], scalar_tab.shape[2], self.d) if grad \
+            else (scalar_tab.shape[0], self.d * scalar_tab.shape[1], self.d)
 
-        if grad:
-            return np.einsum("ijl, jk -> ijkl", scalar_tab, self.node_weights)
+        res = np.zeros(shape)
+        for d in range(self.d):
+            if grad:
+                res[:, d::self.d, :, d] = scalar_tab
+            else:
+                res[:, d::self.d, d] = scalar_tab
 
-        else:
-            return np.einsum("ij, jk -> ijk", scalar_tab, self.node_weights)
+        return res
 
 
 class LagrangeElement(FiniteElement):
@@ -317,10 +317,10 @@ class LagrangeElement(FiniteElement):
 
         if cell.dim == 2:
             entity_nodes[1] = {
-                e: node_indices[3 + e*edge_pts_num: 3 + (1 + e)*edge_pts_num] for e in range(3)
+                e: node_indices[3 + e * edge_pts_num: 3 + (1 + e) * edge_pts_num] for e in range(3)
             }
 
-            entity_nodes[2] = {0: node_indices[3 + 3*edge_pts_num:]}
+            entity_nodes[2] = {0: node_indices[3 + 3 * edge_pts_num:]}
 
         else:
             entity_nodes[1] = {0: node_indices[2:]}
