@@ -21,19 +21,16 @@ def lagrange_points(cell: ReferenceCell, degree):
     <ex-lagrange-points>`.
 
     """
-    if cell.dim > 2:
-        raise NotImplementedError(f"{dimension}D is hard :(")
 
-    dimension = cell.dim
     verticies = cell.vertices
     lpoints = copy.deepcopy(verticies)
     intervals = cell.topology[1]
     intervals = dict(sorted(intervals.items()))
 
     # create edge points in topological order
-    for _, edge in intervals.items():
-        x1 = verticies[int(edge[0])]
-        x2 = verticies[int(edge[1])]
+    for edge in intervals.values():
+        x1 = verticies[edge[0]]
+        x2 = verticies[edge[1]]
 
         edge_points_num = degree + 1
         edge_points = np.linspace(x1, x2, edge_points_num)[
@@ -42,7 +39,7 @@ def lagrange_points(cell: ReferenceCell, degree):
         lpoints = np.concatenate((lpoints, edge_points))
 
     # create inner points in some order
-    if dimension == 2 and degree >= 3:
+    if cell.dim == 2 and degree >= 3:
         for i in range(1, degree - 1):
             num_interval_points = degree + 1 - i  # amount of interval points is decreasing w. i
             x_i = [0, i]
@@ -211,12 +208,8 @@ class FiniteElement(object):
 
         """
 
-        vander_matrix = vandermonde_matrix(self.cell, self.degree, points, grad)
-        if grad:
-            return np.einsum("ilk,lj -> ijk", vander_matrix, self.basis_coefs)
-
-        tabulation = vander_matrix @ self.basis_coefs
-        return tabulation
+        return np.einsum("qj..., jk -> qk...",
+                         vandermonde_matrix(self.cell, self.degree, points, grad), self.basis_coefs)
 
     def interpolate(self, fn):
         """Interpolate fn onto this finite element by evaluating it
