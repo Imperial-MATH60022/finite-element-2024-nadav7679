@@ -36,7 +36,7 @@ def errornorm(f1, f2):
         if isinstance(f1.function_space.element, VectorFiniteElement) and isinstance(f2.function_space.element, VectorFiniteElement):
             c_f1 = np.einsum("i, qil->ql", f1.values[nodes1], phi)
             c_f2 = np.einsum("i, qil->ql", f2.values[nodes2], psi)
-            norm += detJ * (Q.weights @ np.linalg.norm(c_f1 - c_f2, ord=2, axis=1))  # Euclid 2-norm, contract weights
+            norm += detJ * (Q.weights @ np.linalg.norm(c_f1 - c_f2, ord=2, axis=1)**2)  # Euclid 2-norm, contract weights
 
         else:
             norm += np.dot((np.dot(f1.values[nodes1], phi.T) -
