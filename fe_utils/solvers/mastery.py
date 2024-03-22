@@ -23,17 +23,16 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
     l = np.zeros(n + m)
     A = sp.lil_matrix((n, n))
     B = sp.lil_matrix((m, n))
+    Z = sp.lil_matrix((m, m))
 
-
-    # Quadrature for RHS
-    quad = gauss_quadrature(fs1.element.cell, fs1.element.degree ** 2)
+    # Quadrature
+    quad = gauss_quadrature(fs1.element.cell, 2 * fs1.element.degree)
 
     # Tabulate
     phi = fs1.element.tabulate(quad.points)
     grad_phi = fs1.element.tabulate(quad.points, grad=True)
     psi = fs2.element.tabulate(quad.points)
 
-    F = np.zeros(n)
     for c in range(fs1.mesh.entity_counts[-1]):
         # local_phi.shape = (q, i, d) where q is num of quad points, i is nodes, d is vector dimension
 
@@ -47,35 +46,31 @@ def assemble(fs1: FunctionSpace, fs2: FunctionSpace, f: Function, mu=1):
         # Compute RHS
         f_decomposed = np.einsum("k,qkl->ql", f.values[fs1_c_nodes], phi) # f evaluated at x_q, represented as a sum of basis phi_k
         f_dot_phi = np.einsum("ql,qil->qi", f_decomposed, phi)
-        F[fs1_c_nodes] += jac_det * (quad.weights.transpose() @ f_dot_phi)  # Contracting quadrature rule
+        l[fs1_c_nodes] += jac_det * (quad.weights.transpose() @ f_dot_phi)  # Contracting quadrature rule
 
         # Compute LHS - A:
-        # local_grad_phi = np.einsum("db, qjad->qjab", jac_inv, grad_phi) # d for dummy
-        local_grad_phi = grad_phi @ jac_inv
-        epsilon_phi = 0.5*(local_grad_phi + local_grad_phi.transpose((0, 1, 3, 2)))
-        epsilon_dot_epsilon = np.einsum("qiab,qjab->qij", epsilon_phi, epsilon_phi) # dot(eps(phi_i(xq)), eps(phi_j(xq))) contracted on q
-        A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += mu * jac_det * np.einsum("q, qij->ij", quad.weights, epsilon_dot_epsilon)
-
+        local_grad_phi = np.einsum("db, qjdl ->qjbl", jac_inv, grad_phi)
+        epsilon = 0.5*(local_grad_phi + local_grad_phi.transpose((0, 1, 3, 2)))
+        A[np.ix_(fs1_c_nodes, fs1_c_nodes)] += mu * jac_det * np.einsum(
+            "q, qibl, qjbl->ij", quad.weights, epsilon, epsilon)
 
         # Compute LHS - B:
-        # div_phi = np.trace(local_grad_phi, axis1=2, axis2=3)
-        div_phi = np.einsum("qjaa->qj", local_grad_phi)
-        B[np.ix_(fs2_c_nodes, fs1_c_nodes)] += jac_det * np.einsum("q, qi, qj -> ij", quad.weights, psi, div_phi)
-
-    l[:n] = F
-    T = sp.bmat([[A, B.transpose()], [B, None]], "lil")
+        div_phi = np.trace(local_grad_phi, axis1=2, axis2=3)
+        B[np.ix_(fs2_c_nodes, fs1_c_nodes)] += jac_det * np.einsum(
+            "q, qi, qj -> ij", quad.weights, psi, div_phi)
 
     # Boundary conditions on u:
-    u_boundary = boundary_nodes(fs1)
-    l[u_boundary] = 0.
-    T[u_boundary, :] = 1E-17  # Non convergence with 0 then roundoff error instead
-    T[u_boundary, u_boundary] = 1.
+    boundary_u = boundary_nodes(fs1)
+    A[boundary_u, :] = 0
+    A[boundary_u, boundary_u] = 1
+    l[boundary_u] = 0
 
     # Boundary condition on p:
-    arbitrary_dof = n + 1   # 1 is arbitrary here, n is just where the enumeration begins for fs2
-    l[arbitrary_dof] = 0.
-    T[arbitrary_dof, :] = 1e-17
-    T[arbitrary_dof, arbitrary_dof] = 1.
+    B[0, :] = 0
+    Z[0, 0] = 1
+    l[n] = 0  # This is the first node for fs2
+
+    T = sp.bmat([[A, B.T], [B, Z]], format="lil")
 
     return T, l
 
@@ -92,37 +87,34 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     numerical solution should be returned in place of the solution.
     """
 
-    degree = 5
-
     mesh = UnitSquareMesh(resolution, resolution)
-    fe = LagrangeElement(mesh.cell, degree)
+    fe1 = LagrangeElement(mesh.cell, 2)
+    fe2 = LagrangeElement(mesh.cell, 1)
+    vec_fe = VectorFiniteElement(fe1)
 
-    vec_fe = VectorFiniteElement(fe)
     fs1 = FunctionSpace(mesh, vec_fe)
+    fs2 = FunctionSpace(mesh, fe2)
 
-    fs2 = FunctionSpace(mesh, fe)
-
-    # Need to create u from gamma
-    analytic_answer = Function(fs1)
-    analytic_answer.interpolate(lambda x:
+    real_p = Function(fs2)
+    real_u = Function(fs1)
+    real_u.interpolate(lambda x:
                                 (
-                                    2 * pi * (1 - cos(2 * pi * x[0]) * sin(2 * pi * x[1])),
-                                    2 * pi * (1 - cos(2 * pi * x[1]) * sin(2 * pi * x[0]))
+                                    2 * pi * (1 - cos(2 * pi * x[0])) * sin(2 * pi * x[1]),
+                                    -2 * pi * (1 - cos(2 * pi * x[1])) * sin(2 * pi * x[0])
                                 ))
 
-    # TODO: check that the analytic answer for u is correct. Unsure about p=0, it might be wrong.
-    #       Also, need to derive f, I'm unsure about that. If p is a constant, then f=grad**2 u.
-    if analytic:
-        return (analytic_answer, 0), 0.0
 
-    mu = 0.1
+    if analytic:
+        return (real_u, real_p), 0.0
+
     force_func = Function(fs1)
-    force_func.interpolate(lambda x:
-                           (
-                               -32 * pi * mu * cos(2 * pi * x[0]) * sin(2 * pi * x[1]),
-                               32 * pi * mu * cos(2 * pi * x[1]) * sin(2 * pi * x[0]),
-                           )
-                           )
+    force_func.interpolate(lambda x: (
+        4.0 * pi ** 3 * (1 - cos(2 * pi * x[0])) * sin(2 * pi * x[1]) - 4.0 * pi ** 3 * sin(
+            2 * pi * x[1]) * cos(2 * pi * x[0]),
+        -4.0 * pi ** 3 * (1 - cos(2 * pi * x[1])) * sin(2 * pi * x[0]) + 4.0 * pi ** 3 * sin(
+            2 * pi * x[0]) * cos(2 * pi * x[1])
+    ))
+
 
     A, l = assemble(fs1, fs2, force_func)
 
@@ -134,23 +126,11 @@ def solve_mastery(resolution, analytic=False, return_error=False):
     u = Function(fs1,)
     p = Function(fs2)
 
-    u.values = sol[:fs1.node_count]
-    p.values = sol[:fs2.node_count]
+    u.values[:] = sol[:fs1.node_count]
+    p.values[:] = sol[fs1.node_count:]
 
     # Calculate error
-    real_p = Function(fs2)
-    error_p = errornorm(p, real_p)
-
-    real_u = Function(fs1)
-    real_u.interpolate(lambda x:
-                       (
-                           2*pi*(1-cos(2*pi*x[0])) * sin(2*pi*x[1]),
-                           -2*pi*(1-cos(2*pi*x[1])) * sin(2*pi*x[0]),
-                       )
-                       )
-    error_u = errornorm(u, real_u)
-
-    error = np.sqrt(error_u**2 + error_p**2)
+    error = np.sqrt(errornorm(u, real_u)**2 + errornorm(p, real_p)**2)
 
     return (u, p), error
 
@@ -195,11 +175,11 @@ if __name__ == "__main__":
     # plot_error = args.error
     #
     # u, error = solve_mastery(resolution, analytic, plot_error)
-    #
+
     # u.plot()
 
-    (u,p), error = solve_mastery(4, False, False)
+    (u,p), error = solve_mastery(10, False, False)
     print(error)
-    u.plot()
-    p.plot()
+    # u.plot()
+    # p.plot()
 
