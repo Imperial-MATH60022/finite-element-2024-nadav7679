@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 from sympy import diff, Array, symbols, lambdify
+from scipy.special import binom
 
 from .reference_elements import ReferenceInterval, ReferenceTriangle, ReferenceCell
 from .quadrature import gauss_quadrature
@@ -297,22 +298,25 @@ class LagrangeElement(FiniteElement):
         """
 
         nodes = lagrange_points(cell, degree)  # Assuming nodes are in entity order
-        n = len(nodes)
-        node_indices = list(range(n))
+        node_indices = list(range(len(nodes)))
 
-        edge_pts_num = degree + 1 - 2
+        # Vertices - d simplex has d+1 vertices
         entity_nodes = {
-            0: {i: [node_indices[i]] for i in range(cell.dim + 1)}  # Vertices first
+            0: {i: [node_indices[i]] for i in range(cell.dim + 1)}  # Simplex has d+1 vertices
         }
 
-        if cell.dim == 2:
-            entity_nodes[1] = {
-                e: node_indices[3 + e * edge_pts_num: 3 + (1 + e) * edge_pts_num] for e in range(3)
-            }
+        # m-faces for m<d
+        used_nodes = cell.dim + 1
+        for m in range(1, cell.dim):
+            faces_num = int(binom(cell.dim + 1, m + 1))
+            m_face_nodes = np.max([degree - m, 0])
 
-            entity_nodes[2] = {0: node_indices[3 + 3 * edge_pts_num:]}
+            entity_nodes[m] = {}
+            for e in range(faces_num):
+                entity_nodes[m][e] = node_indices[used_nodes: used_nodes + m_face_nodes]
+                used_nodes += m_face_nodes
 
-        else:
-            entity_nodes[1] = {0: node_indices[2:]}
+        # Remaining d entity
+        entity_nodes[cell.dim] = {0: node_indices[used_nodes:]}
 
         super(LagrangeElement, self).__init__(cell, degree, nodes, entity_nodes)
