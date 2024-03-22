@@ -1,6 +1,7 @@
 import copy
 import numpy as np
 from sympy import diff, Array, symbols, lambdify
+from scipy.special import binom
 
 from .reference_elements import ReferenceInterval, ReferenceTriangle, ReferenceCell
 from .quadrature import gauss_quadrature
@@ -21,19 +22,16 @@ def lagrange_points(cell: ReferenceCell, degree):
     <ex-lagrange-points>`.
 
     """
-    if cell.dim > 2:
-        raise NotImplementedError(f"{dimension}D is hard :(")
 
-    dimension = cell.dim
     verticies = cell.vertices
     lpoints = copy.deepcopy(verticies)
     intervals = cell.topology[1]
     intervals = dict(sorted(intervals.items()))
 
     # create edge points in topological order
-    for _, edge in intervals.items():
-        x1 = verticies[int(edge[0])]
-        x2 = verticies[int(edge[1])]
+    for edge in intervals.values():
+        x1 = verticies[edge[0]]
+        x2 = verticies[edge[1]]
 
         edge_points_num = degree + 1
         edge_points = np.linspace(x1, x2, edge_points_num)[
@@ -42,7 +40,7 @@ def lagrange_points(cell: ReferenceCell, degree):
         lpoints = np.concatenate((lpoints, edge_points))
 
     # create inner points in some order
-    if dimension == 2 and degree >= 3:
+    if cell.dim == 2 and degree >= 3:
         for i in range(1, degree - 1):
             num_interval_points = degree + 1 - i  # amount of interval points is decreasing w. i
             x_i = [0, i]
@@ -211,12 +209,8 @@ class FiniteElement(object):
 
         """
 
-        vander_matrix = vandermonde_matrix(self.cell, self.degree, points, grad)
-        if grad:
-            return np.einsum("ilk,lj -> ijk", vander_matrix, self.basis_coefs)
-
-        tabulation = vander_matrix @ self.basis_coefs
-        return tabulation
+        return np.einsum("qj..., jk -> qk...",
+                         vandermonde_matrix(self.cell, self.degree, points, grad), self.basis_coefs)
 
     def interpolate(self, fn):
         """Interpolate fn onto this finite element by evaluating it
@@ -243,7 +237,7 @@ class FiniteElement(object):
 
 class VectorFiniteElement(FiniteElement):
     def __init__(self, fe: FiniteElement):
-        entity_nodes = copy.deepcopy(fe.entity_nodes)  # Avoid referencing the original fe
+        entity_nodes = copy.deepcopy(fe.entity_nodes)  # Avoid referencing given fe
         nodes = copy.deepcopy(fe.nodes)
         super().__init__(fe.cell, fe.degree, nodes, entity_nodes)
 
@@ -251,7 +245,6 @@ class VectorFiniteElement(FiniteElement):
         self.scalar_finite_element = fe
 
         # Entity nodes
-
         for delta, d_nodes in self.entity_nodes.items():
             # e.g. delta = 1, d_nodes = {0: [0, 1], 1: [3, 4]}
             for i in d_nodes:
@@ -303,44 +296,27 @@ class LagrangeElement(FiniteElement):
         The implementation of this class is left as an :ref:`exercise
         <ex-lagrange-element>`.
         """
-        if cell.dim > 2:
-            raise NotImplemented(f"{cell.dim}D is hard :(")
 
         nodes = lagrange_points(cell, degree)  # Assuming nodes are in entity order
-        n = len(nodes)
-        node_indices = list(range(n))
+        node_indices = list(range(len(nodes)))
 
-        edge_pts_num = degree + 1 - 2
+        # Vertices - d simplex has d+1 vertices
         entity_nodes = {
-            0: {i: [node_indices[i]] for i in range(cell.dim + 1)}  # Vertices first
+            0: {i: [node_indices[i]] for i in range(cell.dim + 1)}  # Simplex has d+1 vertices
         }
 
-        if cell.dim == 2:
-            entity_nodes[1] = {
-                e: node_indices[3 + e * edge_pts_num: 3 + (1 + e) * edge_pts_num] for e in range(3)
-            }
+        # m-faces for m<d
+        used_nodes = cell.dim + 1
+        for m in range(1, cell.dim):
+            faces_num = int(binom(cell.dim + 1, m + 1))
+            m_face_nodes = np.max([degree - m, 0])
 
-            entity_nodes[2] = {0: node_indices[3 + 3 * edge_pts_num:]}
+            entity_nodes[m] = {}
+            for e in range(faces_num):
+                entity_nodes[m][e] = node_indices[used_nodes: used_nodes + m_face_nodes]
+                used_nodes += m_face_nodes
 
-        else:
-            entity_nodes[1] = {0: node_indices[2:]}
+        # Remaining d entity
+        entity_nodes[cell.dim] = {0: node_indices[used_nodes:]}
 
         super(LagrangeElement, self).__init__(cell, degree, nodes, entity_nodes)
-
-
-if __name__ == "__main__":
-    lag_element = LagrangeElement(ReferenceTriangle, 1)
-    vec_fe = VectorFiniteElement(lag_element)
-
-    # quad = gauss_quadrature(lag_element.cell, 3)
-    # tab = vec_fe.tabulate(quad.points, grad=False)
-    # print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape, )
-    # print(tab[0, 0:4, :])
-
-    quad = gauss_quadrature(lag_element.cell, 5)
-    tab = lag_element.tabulate(quad.points, grad=True)
-    # print(tab[0, 4, :])
-
-    tab_vec = vec_fe.tabulate(quad.points, grad=True)
-    # print(lag_element.node_count, vec_fe.node_count, quad.points.shape, tab.shape)
-    print(tab_vec[:, 4, 0, :])

@@ -32,7 +32,7 @@ class FunctionSpace(object):
         max_entity_nodes = max([self.element.nodes_per_entity[d] for d in range(self.mesh.dim)])
 
         # Global numbering
-        g = lambda d, i: (i*self.element.nodes_per_entity[d] +
+        g = lambda d, i: (i * self.element.nodes_per_entity[d] +
                           sum([self.element.nodes_per_entity[delta] * self.mesh.entity_counts[delta]
                                for delta in range(d)]))
 
@@ -90,9 +90,6 @@ class Function(object):
           vector and returns a scalar value.
 
         """
-        if isinstance(self.function_space.element, VectorFiniteElement) and self.function_space.element.d == 1:
-            raise ValueError("1d vectors are dumb, we don't do that currently")
-
         fs = self.function_space
 
         # Create a map from the vertices to the element nodes on the reference cell.
@@ -132,6 +129,9 @@ class Function(object):
         fs = self.function_space
 
         if isinstance(fs.element, VectorFiniteElement):
+            if fs.element.d != 2:
+                raise ValueError("VectorFiniteElement can plot only 2D vectors")  # Code below seems to work only for 2d
+
             coords = Function(fs)
             coords.interpolate(lambda x: x)
             fig = plt.figure()
@@ -201,7 +201,7 @@ class Function(object):
                     + [
                         np.add(
                             np.sum(range(degree + 2 - j, degree + 2)),
-                            (i+1, i + degree + 1 - j + 1, i + degree + 1 - j))
+                            (i + 1, i + degree + 1 - j + 1, i + degree + 1 - j))
                         for j in range(degree - 1)
                         for i in range(degree - 1 - j)
                     ]))
@@ -230,24 +230,3 @@ class Function(object):
             cell_integrals[c] = cell_quad * jacobian
 
         return np.sum(cell_integrals)
-
-
-if __name__ == "__main__":
-    mesh = UnitIntervalMesh(20,)
-    element = LagrangeElement(ReferenceInterval, 5)
-    fs = FunctionSpace(mesh, element)
-    sinx = Function(fs, "sinx")
-    sinx.interpolate(lambda x: np.sin(2 * np.pi * x[0]))
-    print(f"I'm this close to zero: {sinx.integrate()}")
-
-    # VectorFiniteElement test:
-    from math import cos, sin, pi
-
-    se = LagrangeElement(ReferenceTriangle, 2)
-    ve = VectorFiniteElement(se)
-    m = UnitSquareMesh(10, 10)
-    fs = FunctionSpace(m, ve)
-    f = Function(fs)
-    f.interpolate(lambda x: (2 * pi * (1 - cos(2 * pi * x[0])) * sin(2 * pi * x[1]),
-                             -2 * pi * (1 - cos(2 * pi * x[1])) * sin(2 * pi * x[0])))
-    f.plot()

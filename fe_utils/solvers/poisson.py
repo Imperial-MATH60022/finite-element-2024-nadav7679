@@ -20,7 +20,7 @@ def assemble(fs, f):
         raise ValueError("fs and f supposed to be defined on the same mesh")
 
     # Create an appropriate (complete) quadrature rule.
-    quad = gauss_quadrature(fs.element.cell, fs.element.degree**2)
+    quad = gauss_quadrature(fs.element.cell, fs.element.degree ** 2)
 
     # Locating the indices of boundary nodes
     fs_boundary = boundary_nodes(fs)
@@ -97,7 +97,7 @@ def solve_poisson(degree, resolution, analytic=False, return_error=False):
 
     # Create a function to hold the analytic solution for comparison purposes.
     analytic_answer = Function(fs)
-    analytic_answer.interpolate(lambda x: sin(4*pi*x[0])*x[1]**2*(1.-x[1])**2)
+    analytic_answer.interpolate(lambda x: sin(4 * pi * x[0]) * x[1] ** 2 * (1. - x[1]) ** 2)
 
     # If the analytic answer has been requested then bail out now.
     if analytic:
@@ -106,8 +106,8 @@ def solve_poisson(degree, resolution, analytic=False, return_error=False):
     # Create the right hand side function and populate it with the
     # correct values.
     f = Function(fs)
-    f.interpolate(lambda x: (16*pi**2*(x[1] - 1)**2*x[1]**2 - 2*(x[1] - 1)**2 -
-                             8*(x[1] - 1)*x[1] - 2*x[1]**2) * sin(4*pi*x[0]))
+    f.interpolate(lambda x: (16 * pi ** 2 * (x[1] - 1) ** 2 * x[1] ** 2 - 2 * (x[1] - 1) ** 2 -
+                             8 * (x[1] - 1) * x[1] - 2 * x[1] ** 2) * sin(4 * pi * x[0]))
 
     # Assemble the finite element system.
     A, l = assemble(fs, f)
@@ -132,7 +132,6 @@ def solve_poisson(degree, resolution, analytic=False, return_error=False):
 
 
 if __name__ == "__main__":
-
     parser = ArgumentParser(
         description="""Solve a Poisson problem on the unit square.""")
     parser.add_argument("--analytic", action="store_true",

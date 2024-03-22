@@ -46,9 +46,8 @@ class QuadratureRule(object):
         The implementation of this method is left as an :ref:`exercise
         <ex-integrate>`.
         """
-        res = np.dot([function(point) for point in self.points], self.weights)
 
-        return res
+        return np.dot([function(point) for point in self.points], self.weights)
 
 
 def gauss_quadrature(cell, degree):

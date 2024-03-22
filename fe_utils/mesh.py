@@ -74,13 +74,11 @@ class Mesh(object):
         #: :class:`Mesh` is composed.
         self.cell = (0, ReferenceInterval, ReferenceTriangle)[self.dim]
 
-
         cg1 = LagrangeElement(self.cell, 1)
 
         #: The gradient of a CG1 Lagrange element defined on the reference cell.
         #: Since CG1 has affine basis functions, its gradiant is constant and can be evaluated at zero for all cells.
         self.grad_psi = cg1.tabulate(np.zeros((1, self.dim)), grad=True)[0]
-
 
     def adjacency(self, dim1, dim2):
         """Return the set of `dim2` entities adjacent to each `dim1`
@@ -158,9 +156,3 @@ class UnitSquareMesh(Mesh):
 
         super(UnitSquareMesh, self).__init__(mesh.points,
                                              mesh.simplices)
-
-
-if __name__ == "__main__":
-    square = UnitSquareMesh(4, 4)
-    print(square.jacobian(6))
-
