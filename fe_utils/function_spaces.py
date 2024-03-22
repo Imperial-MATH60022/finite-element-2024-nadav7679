@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 from matplotlib.tri import Triangulation
 
 from . import ReferenceTriangle, ReferenceInterval
-from .finite_elements import FiniteElement, LagrangeElement, lagrange_points
+from .finite_elements import FiniteElement, VectorFiniteElement, LagrangeElement, lagrange_points
 from .mesh import Mesh, UnitSquareMesh, UnitIntervalMesh
 from .quadrature import gauss_quadrature
 
@@ -90,11 +90,12 @@ class Function(object):
           vector and returns a scalar value.
 
         """
+        if isinstance(self.function_space.element, VectorFiniteElement) and self.function_space.element.d == 1:
+            raise ValueError("1d vectors are dumb, we don't do that currently")
 
         fs = self.function_space
 
-        # Create a map from the vertices to the element nodes on the
-        # reference cell.
+        # Create a map from the vertices to the element nodes on the reference cell.
         cg1 = LagrangeElement(fs.element.cell, 1)
         coord_map = cg1.tabulate(fs.element.nodes)
         cg1fs = FunctionSpace(fs.mesh, cg1)
@@ -104,7 +105,15 @@ class Function(object):
             vertex_coords = fs.mesh.vertex_coords[cg1fs.cell_nodes[c, :], :]
             node_coords = np.dot(coord_map, vertex_coords)
 
-            self.values[fs.cell_nodes[c, :]] = [fn(x) for x in node_coords]
+            if isinstance(fs.element, VectorFiniteElement):
+                #  The dot product returns an (n,n) array, where n is num of quad points (x_n)_n.
+                #  Each row i has the components of fn(x_i) one after each other, repeated n/d times.
+                self.values[fs.cell_nodes[c, :]] = np.diag(
+                    np.dot(np.array([fn(x) for x in node_coords]), fs.element.node_weights.transpose())
+                )
+
+            else:
+                self.values[fs.cell_nodes[c, :]] = [fn(x) for x in node_coords]
 
     def plot(self, subdivisions=None):
         """Plot the value of this :class:`Function`. This is quite a low
@@ -121,6 +130,17 @@ class Function(object):
         """
 
         fs = self.function_space
+
+        if isinstance(fs.element, VectorFiniteElement):
+            coords = Function(fs)
+            coords.interpolate(lambda x: x)
+            fig = plt.figure()
+            ax = fig.add_subplot()
+            x = coords.values.reshape(-1, 2)
+            v = self.values.reshape(-1, 2)
+            plt.quiver(x[:, 0], x[:, 1], v[:, 0], v[:, 1])
+            plt.show()
+            return
 
         d = subdivisions or (
             2 * (fs.element.degree + 1) if fs.element.degree > 1 else 2
@@ -219,3 +239,15 @@ if __name__ == "__main__":
     sinx = Function(fs, "sinx")
     sinx.interpolate(lambda x: np.sin(2 * np.pi * x[0]))
     print(f"I'm this close to zero: {sinx.integrate()}")
+
+    # VectorFiniteElement test:
+    from math import cos, sin, pi
+
+    se = LagrangeElement(ReferenceTriangle, 2)
+    ve = VectorFiniteElement(se)
+    m = UnitSquareMesh(10, 10)
+    fs = FunctionSpace(m, ve)
+    f = Function(fs)
+    f.interpolate(lambda x: (2 * pi * (1 - cos(2 * pi * x[0])) * sin(2 * pi * x[1]),
+                             -2 * pi * (1 - cos(2 * pi * x[1])) * sin(2 * pi * x[0])))
+    f.plot()
