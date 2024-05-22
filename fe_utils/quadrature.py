@@ -47,7 +47,7 @@ class QuadratureRule(object):
         <ex-integrate>`.
         """
 
-        raise NotImplementedError
+        return np.dot([function(point) for point in self.points], self.weights)
 
 
 def gauss_quadrature(cell, degree):

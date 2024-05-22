@@ -16,7 +16,52 @@ def assemble(fs, f):
     the function space in which to solve and the right hand side
     function."""
 
-    raise NotImplementedError
+    if fs.mesh.entity_counts[-1] != f.function_space.mesh.entity_counts[-1]:
+        raise ValueError("fs and f supposed to be defined on the same mesh")
+
+    # Create an appropriate (complete) quadrature rule.
+    quad = gauss_quadrature(fs.element.cell, fs.element.degree ** 2)
+
+    # Locating the indices of boundary nodes
+    fs_boundary = boundary_nodes(fs)
+
+    # Tabulate the basis functions and their gradients at the quadrature points.
+    local_phi = fs.element.tabulate(quad.points)
+    local_phi_grad = fs.element.tabulate(quad.points, True)
+
+    # Sparse matrices to hold results
+    A = sp.lil_matrix((fs.node_count, fs.node_count))
+    l = np.zeros(fs.node_count)
+
+    for c in range(fs.mesh.entity_counts[-1]):
+        # local_phi_grad.shape = (q, i, a) where q num of quad points, i num of basis funcs, a dimensions
+        # jac.shape = (d, a) where a==d (d is just another dummy var.)
+        # local_phi.shape = (q, i)
+
+        jac = fs.mesh.jacobian(c)
+        jac_det = np.abs(np.linalg.det(jac))
+        jac_inv_t = np.linalg.inv(jac)
+
+        c_nodes = f.function_space.cell_nodes[c, :]
+
+        # RHS:
+        cell_f = local_phi @ f.values[c_nodes].reshape((c_nodes.shape[0], 1))  # Contract f with basis func at quad
+        cell_f_int = np.einsum("qi,q,q->i", local_phi, np.squeeze(cell_f, 1), quad.weights)  # Contract weights
+
+        l[fs.cell_nodes[c, :]] += jac_det * cell_f_int
+
+        # LFS:
+        jac_grad_phi = np.einsum("da,qid->aiq", jac_inv_t, local_phi_grad)
+        jac_grad_phi_squared = np.einsum("aiq,ajq->ijq", jac_grad_phi, jac_grad_phi)
+
+        A[np.ix_(c_nodes, c_nodes)] += jac_det * (jac_grad_phi_squared @ quad.weights)  # Contract weights
+
+    # Setting the boundary nodes to zero which enforces zero Dirichlet Boundary Conditions.
+    l[fs_boundary] = 0
+    A[fs_boundary, :] = 0
+    A[fs_boundary, fs_boundary] = 1
+
+    return A, l
 
 
 def boundary_nodes(fs):
@@ -52,7 +97,7 @@ def solve_poisson(degree, resolution, analytic=False, return_error=False):
 
     # Create a function to hold the analytic solution for comparison purposes.
     analytic_answer = Function(fs)
-    analytic_answer.interpolate(lambda x: sin(4*pi*x[0])*x[1]**2*(1.-x[1])**2)
+    analytic_answer.interpolate(lambda x: sin(4 * pi * x[0]) * x[1] ** 2 * (1. - x[1]) ** 2)
 
     # If the analytic answer has been requested then bail out now.
     if analytic:
@@ -61,8 +106,8 @@ def solve_poisson(degree, resolution, analytic=False, return_error=False):
     # Create the right hand side function and populate it with the
     # correct values.
     f = Function(fs)
-    f.interpolate(lambda x: (16*pi**2*(x[1] - 1)**2*x[1]**2 - 2*(x[1] - 1)**2 -
-                             8*(x[1] - 1)*x[1] - 2*x[1]**2) * sin(4*pi*x[0]))
+    f.interpolate(lambda x: (16 * pi ** 2 * (x[1] - 1) ** 2 * x[1] ** 2 - 2 * (x[1] - 1) ** 2 -
+                             8 * (x[1] - 1) * x[1] - 2 * x[1] ** 2) * sin(4 * pi * x[0]))
 
     # Assemble the finite element system.
     A, l = assemble(fs, f)
@@ -87,7 +132,6 @@ def solve_poisson(degree, resolution, analytic=False, return_error=False):
 
 
 if __name__ == "__main__":
-
     parser = ArgumentParser(
         description="""Solve a Poisson problem on the unit square.""")
     parser.add_argument("--analytic", action="store_true",

@@ -1,13 +1,16 @@
 import numpy as np
-from . import ReferenceTriangle, ReferenceInterval
-from .finite_elements import LagrangeElement, lagrange_points
 from matplotlib import pyplot as plt
 from matplotlib.tri import Triangulation
+
+from . import ReferenceTriangle, ReferenceInterval
+from .finite_elements import FiniteElement, VectorFiniteElement, LagrangeElement, lagrange_points
+from .mesh import Mesh, UnitSquareMesh, UnitIntervalMesh
+from .quadrature import gauss_quadrature
 
 
 class FunctionSpace(object):
 
-    def __init__(self, mesh, element):
+    def __init__(self, mesh: Mesh, element: FiniteElement):
         """A finite element space.
 
         :param mesh: The :class:`~.mesh.Mesh` on which this space is built.
@@ -23,15 +26,31 @@ class FunctionSpace(object):
         #: The :class:`~.finite_elements.FiniteElement` of this space.
         self.element = element
 
-        raise NotImplementedError
-
         # Implement global numbering in order to produce the global
         # cell node list for this space.
+        n_cell = len(self.mesh.cell_vertices)
+        max_entity_nodes = max([self.element.nodes_per_entity[d] for d in range(self.mesh.dim)])
+
+        # Global numbering
+        g = lambda d, i: (i * self.element.nodes_per_entity[d] +
+                          sum([self.element.nodes_per_entity[delta] * self.mesh.entity_counts[delta]
+                               for delta in range(d)]))
+
+        dim_c = mesh.dim
+        cell_nodes = np.zeros((n_cell, len(self.element.nodes)), dtype=int)
+        for c in range(n_cell):
+            for delta in range(dim_c + 1):
+                for epsilon in range(len(self.element.entity_nodes[delta])):  # epsilon is num of nodes in entity delta
+                    indices = self.element.entity_nodes[delta][epsilon]
+                    i = self.mesh.adjacency(dim_c, delta)[c, epsilon] if delta != dim_c else c
+
+                    cell_nodes[c, indices] = g(delta, i) + np.arange(self.element.nodes_per_entity[delta])
+
         #: The global cell node list. This is a two-dimensional array in
         #: which each row lists the global nodes incident to the corresponding
         #: cell. The implementation of this member is left as an
         #: :ref:`exercise <ex-function-space>`
-        self.cell_nodes = None
+        self.cell_nodes = cell_nodes
 
         #: The total number of nodes in the function space.
         self.node_count = np.dot(element.nodes_per_entity, mesh.entity_counts)
@@ -43,7 +62,7 @@ class FunctionSpace(object):
 
 
 class Function(object):
-    def __init__(self, function_space, name=None):
+    def __init__(self, function_space: FunctionSpace, name=None):
         """A function in a finite element space. The main role of this object
         is to store the basis function coefficients associated with the nodes
         of the underlying function space.
@@ -71,11 +90,9 @@ class Function(object):
           vector and returns a scalar value.
 
         """
-
         fs = self.function_space
 
-        # Create a map from the vertices to the element nodes on the
-        # reference cell.
+        # Create a map from the vertices to the element nodes on the reference cell.
         cg1 = LagrangeElement(fs.element.cell, 1)
         coord_map = cg1.tabulate(fs.element.nodes)
         cg1fs = FunctionSpace(fs.mesh, cg1)
@@ -85,7 +102,15 @@ class Function(object):
             vertex_coords = fs.mesh.vertex_coords[cg1fs.cell_nodes[c, :], :]
             node_coords = np.dot(coord_map, vertex_coords)
 
-            self.values[fs.cell_nodes[c, :]] = [fn(x) for x in node_coords]
+            if isinstance(fs.element, VectorFiniteElement):
+                #  The dot product returns an (n,n) array, where n is num of quad points (x_n)_n.
+                #  Each row i has the components of fn(x_i) one after each other, repeated n/d times.
+                self.values[fs.cell_nodes[c, :]] = np.diag(
+                    np.dot(np.array([fn(x) for x in node_coords]), fs.element.node_weights.transpose())
+                )
+
+            else:
+                self.values[fs.cell_nodes[c, :]] = [fn(x) for x in node_coords]
 
     def plot(self, subdivisions=None):
         """Plot the value of this :class:`Function`. This is quite a low
@@ -102,6 +127,20 @@ class Function(object):
         """
 
         fs = self.function_space
+
+        if isinstance(fs.element, VectorFiniteElement):
+            if fs.element.d != 2:
+                raise ValueError("VectorFiniteElement can plot only 2D vectors")  # Code below seems to work only for 2d
+
+            coords = Function(fs)
+            coords.interpolate(lambda x: x)
+            fig = plt.figure()
+            ax = fig.add_subplot()
+            x = coords.values.reshape(-1, 2)
+            v = self.values.reshape(-1, 2)
+            plt.quiver(x[:, 0], x[:, 1], v[:, 0], v[:, 1])
+            plt.show()
+            return
 
         d = subdivisions or (
             2 * (fs.element.degree + 1) if fs.element.degree > 1 else 2
@@ -162,7 +201,7 @@ class Function(object):
                     + [
                         np.add(
                             np.sum(range(degree + 2 - j, degree + 2)),
-                            (i+1, i + degree + 1 - j + 1, i + degree + 1 - j))
+                            (i + 1, i + degree + 1 - j + 1, i + degree + 1 - j))
                         for j in range(degree - 1)
                         for i in range(degree - 1 - j)
                     ]))
@@ -172,4 +211,22 @@ class Function(object):
 
         :result: The integral (a scalar)."""
 
-        raise NotImplementedError
+        fs = self.function_space
+
+        quad = gauss_quadrature(fs.element.cell, fs.element.degree)
+        local_phi = fs.element.tabulate(quad.points)
+
+        cell_integrals = np.zeros(fs.mesh.entity_counts[-1])
+        for c in range(fs.mesh.entity_counts[-1]):
+            func_cell_coefs = self.values[fs.cell_nodes[c, :]]
+            func_cell_coefs = func_cell_coefs.reshape((func_cell_coefs.shape[0], 1))
+
+            # local_phi @ func_cell_coefs gives a vector of sums, each component corresponds to quadrature point,
+            # and the sum is over all basis functions and func coefs at that point. Then contract it with quad weights.
+            cell_quad = quad.weights.reshape((1, quad.weights.shape[0])) @ (local_phi @ func_cell_coefs)
+            cell_quad = cell_quad[0, 0]
+
+            jacobian = np.abs(np.linalg.det(fs.mesh.jacobian(c)))
+            cell_integrals[c] = cell_quad * jacobian
+
+        return np.sum(cell_integrals)

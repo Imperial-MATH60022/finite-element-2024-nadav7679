@@ -2,11 +2,13 @@ from scipy.spatial import Delaunay
 import numpy as np
 import itertools
 from .reference_elements import ReferenceTriangle, ReferenceInterval
+from .finite_elements import LagrangeElement
 
 
 class Mesh(object):
     """A one or two dimensional mesh composed of intervals or triangles
     respectively."""
+
     def __init__(self, vertex_coords, cell_vertices):
         """
         :param vertex_coords: a vertex_count x dim array of the coordinates of
@@ -72,6 +74,12 @@ class Mesh(object):
         #: :class:`Mesh` is composed.
         self.cell = (0, ReferenceInterval, ReferenceTriangle)[self.dim]
 
+        cg1 = LagrangeElement(self.cell, 1)
+
+        #: The gradient of a CG1 Lagrange element defined on the reference cell.
+        #: Since CG1 has affine basis functions, its gradiant is constant and can be evaluated at zero for all cells.
+        self.grad_psi = cg1.tabulate(np.zeros((1, self.dim)), grad=True)[0]
+
     def adjacency(self, dim1, dim2):
         """Return the set of `dim2` entities adjacent to each `dim1`
         entity. For example if `dim1==2` and `dim2==1` then return the list of
@@ -111,12 +119,14 @@ class Mesh(object):
         :param c: The number of the cell for which to return the Jacobian.
         :result: The Jacobian for cell ``c``.
         """
+        vertices = self.cell_vertices[c]
 
-        raise NotImplementedError
+        return self.vertex_coords[vertices, :].transpose() @ self.grad_psi
 
 
 class UnitIntervalMesh(Mesh):
     """A mesh of the unit interval."""
+
     def __init__(self, nx):
         """
         :param nx: The number of cells.
@@ -124,7 +134,7 @@ class UnitIntervalMesh(Mesh):
         points = np.array(list((x,) for x in np.linspace(0, 1, nx + 1)))
         points.shape = (points.shape[0], 1)
 
-        cells = np.array(list((a, a+1) for a in range(nx)))
+        cells = np.array(list((a, a + 1) for a in range(nx)))
 
         super(UnitIntervalMesh, self).__init__(points,
                                                cells)
@@ -132,6 +142,7 @@ class UnitIntervalMesh(Mesh):
 
 class UnitSquareMesh(Mesh):
     """A triangulated :class:`Mesh` of the unit square."""
+
     def __init__(self, nx, ny):
         """
         :param nx: The number of cells in the x direction.
